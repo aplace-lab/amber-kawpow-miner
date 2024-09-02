@@ -6,8 +6,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Create package
-        uses: Martin005/pyinstaller-action@v1.2.0
-        with:
-          upload_exe_with_name: 'test'
-          options: --name "test", --noconsole
+    - uses: actions/checkout@v2
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.12
+
+    #- run: pip install -r requirements.txt pyinstaller
+    - run: pyinstaller.exe main.py --noconsole
+    # Optionally verify that it works (provided that it does not need user interaction)
+    - uses: actions/upload-artifact@v2
+      with:
+        path: dist/*
