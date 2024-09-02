@@ -7,12 +7,46 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/setup-python@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
       with:
         python-version: 3.12
 
-    - run: pip install -r requirements.txt
-    - run: pyinstaller main.py --noconsole --name amber-kawpow-miner
-    - uses: actions/upload-artifact@v2
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Extract VERSION from main.py
+      id: get_version
+      run: |
+        $version_line = Get-Content main.py | Select-String -Pattern 'VERSION = '
+        $version = $version_line -replace 'VERSION = "', '' -replace '"', ''
+        echo "VERSION=$version" >> $env:GITHUB_ENV
+
+    - name: Build executable with PyInstaller
+      run: pyinstaller main.py --noconsole --name amber-kawpow-miner
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
       with:
-        path: dist/amber-kawpow-miner/*
+        name: amber-kawpow-miner
+        path: dist\amber-kawpow-miner\amber-kawpow-miner.exe
+
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.VERSION }}
+        release_name: "Release ${{ env.VERSION }}"
+        draft: false
+        prerelease: false
+
+    - name: Upload to Release
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: dist\amber-kawpow-miner\amber-kawpow-miner.exe
+        asset_name: amber-kawpow-miner.exe
+        asset_content_type: application/octet-stream
