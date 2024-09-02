@@ -47,6 +47,6 @@ jobs:
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist\amber-kawpow-miner\amber-kawpow-miner.exe
+        asset_path: dist\amber-kawpow-miner.exe
         asset_name: amber-kawpow-miner.exe
         asset_content_type: application/octet-stream
