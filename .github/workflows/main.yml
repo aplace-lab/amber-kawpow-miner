@@ -15,4 +15,4 @@ jobs:
     - run: pyinstaller main.py --noconsole --name amber-kawpow-miner
     - uses: actions/upload-artifact@v2
       with:
-        path: dist/amber-kawpow-miner/amber-kawpow-miner.exe
+        path: dist/amber-kawpow-miner/*
