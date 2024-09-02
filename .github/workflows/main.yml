@@ -11,8 +11,8 @@ jobs:
       with:
         python-version: 3.12
 
-    #- run: pip install -r requirements.txt pyinstaller
-    - run: pyinstaller.exe main.py --noconsole
+    - run: pip install -r requirements.txt
+    - run: pyinstaller main.py --noconsole
     # Optionally verify that it works (provided that it does not need user interaction)
     - uses: actions/upload-artifact@v2
       with:
