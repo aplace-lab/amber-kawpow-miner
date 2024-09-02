@@ -44,7 +44,7 @@ WORKER_NAME = config["WORKER_NAME"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.0.6"
+VERSION = "0.0.7"
 MINING_API_URL = "http://127.0.0.1:4068/summary"
 STOP_MINING_CMD = "taskkill /F /IM TBMiner.exe"
 
@@ -62,7 +62,7 @@ def get_api_url():
 class MiningControlApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Ravencoin Mining Control")
+        self.root.title("Amber Kawpow Miner")
         self.root.geometry("650x500")
         self.root.resizable(False, False)
 
@@ -166,7 +166,7 @@ class MiningControlApp:
         """Open the settings window."""
         settings_window = Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x700")
+        settings_window.geometry("400x650")
         settings_window.resizable(False, False)
 
         self.create_settings_fields(settings_window)
@@ -275,7 +275,7 @@ class MiningControlApp:
         """Update the price label and control mining based on the current price."""
         current_price = self.get_current_price()
         if current_price is not None:
-            self.price_label.config(text=f"Current Price: ${current_price:.2f}/kWh")
+            self.price_label.config(text=f"General Usage: ${current_price:.2f}/kWh")
             if self.auto_control.get() == 1:
                 if current_price < PRICE_THRESHOLD:
                     self.start_mining()
@@ -377,7 +377,7 @@ class MiningControlApp:
 
     def update_hashrate(self, hashrate):
         """Update the hashrate label."""
-        self.hashrate_label.config(text=f"Current Hashrate: {hashrate}")
+        self.hashrate_label.config(text=f"Hashrate: {hashrate}")
 
     def update_uptime(self, uptime):
         """Update the uptime label."""
