@@ -12,16 +12,24 @@ import os
 # Configuration file
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
+    # General settings
     "CPU_PRICE_THRESHOLD": 0.4,
     "GPU_PRICE_THRESHOLD": 0.1,
     "AMBER_API_SITE_ID": "",
     "AMBER_API_KEY": "",
-    "POOL_HOSTNAME": "rvn.2miners.com",
-    "POOL_PORT": 6060,
-    "POOL_WALLET": "",
     "WORKER_NAME": socket.gethostname(),
-    "TBM_EXECUTABLE_PATH": r".\TBMiner.exe",
-    "XMRIG_EXECUTABLE_PATH": r".\xmrig.exe"
+    
+    # CPU Mining settings
+    "CPU_POOL_URL": "xmr-au1.nanopool.org",
+    "CPU_POOL_PORT": 10343,
+    "CPU_WALLET": "",
+    "XMRIG_EXECUTABLE_PATH": r".\xmrig.exe",
+
+    # GPU Mining settings
+    "GPU_POOL_URL": "rvn.2miners.com",
+    "GPU_POOL_PORT": 6060,
+    "GPU_WALLET": "",
+    "TBM_EXECUTABLE_PATH": r".\TBMiner.exe"
 }
 
 # Load or initialize configuration
@@ -36,19 +44,27 @@ def load_config():
 config = load_config()
 
 # Assign global variables
+# General settings
 CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
 GPU_PRICE_THRESHOLD = float(config["GPU_PRICE_THRESHOLD"])
 AMBER_API_SITE_ID = config["AMBER_API_SITE_ID"]
 AMBER_API_KEY = config["AMBER_API_KEY"]
-POOL_HOSTNAME = config["POOL_HOSTNAME"]
-POOL_PORT = config["POOL_PORT"]
-POOL_WALLET = config["POOL_WALLET"]
 WORKER_NAME = config["WORKER_NAME"]
-TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+
+# CPU Mining settings
+CPU_POOL_URL = config["CPU_POOL_URL"]
+CPU_POOL_PORT = int(config["CPU_POOL_PORT"])
+CPU_WALLET = config["CPU_WALLET"]
 XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
 
+# GPU Mining settings
+GPU_POOL_URL = config["GPU_POOL_URL"]
+GPU_POOL_PORT = int(config["GPU_POOL_PORT"])
+GPU_WALLET = config["GPU_WALLET"]
+TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+
 # Static variables
-VERSION = "0.0.8"
+VERSION = "0.1.0"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 
 def save_config():
@@ -77,11 +93,8 @@ class MiningControlApp:
         self.create_control_section()
         self.create_stats_section()
 
-        # Validate miner executables on startup
-        self.validate_miner_executables()
-
-        # Start the price update loop
-        self.update_price()
+        # Reload config to ensure all attributes are set
+        self.reload_config()
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -125,11 +138,17 @@ class MiningControlApp:
         control_frame = ttk.Labelframe(self.main_frame, text="Mining Control", padding=(10, 10))
         control_frame.pack(fill=X, pady=(0, 10))
 
-        self.toggle_btn = ttk.Button(control_frame, text="Start Mining", command=self.toggle_mining, bootstyle="primary", width=15)
+        self.toggle_btn = ttk.Button(control_frame, text="Manual Start", command=self.toggle_mining, bootstyle="primary", width=15)
         self.toggle_btn.pack(pady=(0, 5))
 
         self.auto_control = ttk.IntVar()
-        self.auto_control_check = ttk.Checkbutton(control_frame, text="Auto Control Mining", variable=self.auto_control, bootstyle="round-toggle")
+        self.auto_control_check = ttk.Checkbutton(
+            control_frame,
+            text="Auto Control Mining",
+            variable=self.auto_control,
+            bootstyle="round-toggle",
+            command=self.update_price  # Trigger update_price on value change
+        )
         self.auto_control_check.pack(anchor=W, pady=(10, 0))
 
     def create_stats_section(self):
@@ -193,16 +212,16 @@ class MiningControlApp:
         self.add_setting_field(general_frame, "GPU Electricity Cost Threshold ($/kWh):", config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
 
         # CPU Mining settings
-        self.add_setting_field(cpu_frame, "Pool URL:", config.get("CPU_POOL_URL", "xmr-au1.nanopool.org"), "cpu_pool_url_entry")
-        self.add_setting_field(cpu_frame, "Pool Port:", config.get("CPU_POOL_PORT", "10343"), "cpu_pool_port_entry")
+        self.add_setting_field(cpu_frame, "Pool URL:", config.get("CPU_POOL_URL", config["CPU_POOL_URL"]), "cpu_pool_url_entry")
+        self.add_setting_field(cpu_frame, "Pool Port:", str(config.get("CPU_POOL_PORT", config["CPU_POOL_PORT"])), "cpu_pool_port_entry")
         self.add_setting_field(cpu_frame, "Wallet:", config.get("CPU_WALLET", ""), "cpu_wallet_entry")
         self.add_setting_field(cpu_frame, "XMRig Executable Path:", config["XMRIG_EXECUTABLE_PATH"], "xmrig_path_entry")
         self.create_browse_xmr_button(cpu_frame)
 
         # GPU Mining settings
-        self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["POOL_HOSTNAME"]), "gpu_pool_url_entry")
-        self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["POOL_PORT"])), "gpu_pool_port_entry")
-        self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", config["POOL_WALLET"]), "gpu_wallet_entry")
+        self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["GPU_POOL_URL"]), "gpu_pool_url_entry")
+        self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["GPU_POOL_PORT"])), "gpu_pool_port_entry")
+        self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", ""), "gpu_wallet_entry")
         self.add_setting_field(gpu_frame, "TeamBlackMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
         self.create_browse_tbm_button(gpu_frame)
 
@@ -250,6 +269,7 @@ class MiningControlApp:
         """Save the settings from the input fields."""
         global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
 
+        # Update the config dictionary with the new settings
         config["CPU_PRICE_THRESHOLD"] = float(self.cpu_price_threshold_entry.get())
         config["GPU_PRICE_THRESHOLD"] = float(self.gpu_price_threshold_entry.get())
         config["AMBER_API_SITE_ID"] = self.amber_site_id_entry.get()
@@ -272,10 +292,8 @@ class MiningControlApp:
         save_config()
 
         # Reload the configuration to apply changes immediately
-        self.reload_config()
-
-        # Close the settings window after saving
         settings_window.destroy()
+        self.reload_config()  # Reload the config after the settings window is destroyed
 
     def create_browse_xmr_button(self, window):
         """Create a button for browsing the XMRig executable."""
@@ -289,22 +307,33 @@ class MiningControlApp:
 
     def reload_config(self):
         """Reload configuration from the file and update global variables."""
-        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
+        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
 
         config = load_config()
 
+        # General settings
         CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
         GPU_PRICE_THRESHOLD = float(config["GPU_PRICE_THRESHOLD"])
         AMBER_API_SITE_ID = config["AMBER_API_SITE_ID"]
         AMBER_API_KEY = config["AMBER_API_KEY"]
-        POOL_HOSTNAME = config["POOL_HOSTNAME"]
-        POOL_PORT = config["POOL_PORT"]
-        POOL_WALLET = config["POOL_WALLET"]
         WORKER_NAME = config["WORKER_NAME"]
-        TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+
+        # CPU Mining settings
+        self.cpu_pool_url = config["CPU_POOL_URL"]
+        self.cpu_pool_port = int(config["CPU_POOL_PORT"])
+        self.cpu_wallet = config["CPU_WALLET"]
         XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
 
+        # GPU Mining settings
+        self.gpu_pool_url = config["GPU_POOL_URL"]
+        self.gpu_pool_port = int(config["GPU_POOL_PORT"])
+        self.gpu_wallet = config["GPU_WALLET"]
+        TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+
+        # Validate miner executables on startup
         self.validate_miner_executables()
+
+        # Start the price update loop
         self.update_price()
 
     def get_current_price(self):
@@ -397,17 +426,8 @@ class MiningControlApp:
 
     def start_mining(self):
         """Start both GPU (Kawpow) and CPU (Monero) mining processes."""
-        current_price = self.get_current_price()
-        if current_price is None:
-            messagebox.showerror("Price Error", "Unable to retrieve current electricity price.")
-            return
-
-        # Start mining only if the current price is below the respective thresholds
-        if current_price < CPU_PRICE_THRESHOLD:
-            self.start_cpu_mining()
-
-        if current_price < GPU_PRICE_THRESHOLD:
-            self.start_gpu_mining()
+        self.start_cpu_mining()
+        self.start_gpu_mining()
 
         # Update button state after starting mining
         self.update_toggle_button_state()
@@ -440,6 +460,14 @@ class MiningControlApp:
             self.update_cpu_hashrate("N/A")
             self.update_toggle_button_state()  # Ensure the button state is updated when the miner stops
 
+    def update_monero_hashrate(self, output_line):
+        """Update the Monero hashrate based on the XMRig output."""
+        # Example line: [2024-09-02 23:49:05.795]  miner    speed 10s/60s/15m 7359.2 n/a n/a H/s max 7373.7 H/s
+        parts = output_line.split()
+        if len(parts) >= 6:
+            hashrate = f"{parts[5]} H/s"
+            self.update_cpu_hashrate(hashrate)
+
     def start_gpu_mining(self):
         """Start the GPU (Kawpow) mining process."""
         if "kawpow" not in self.mining_processes:
@@ -450,8 +478,8 @@ class MiningControlApp:
         """Run the Kawpow (GPU) mining process."""
         try:
             start_cmd = (
-                f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {POOL_HOSTNAME} --port {POOL_PORT} "
-                f"--wallet {POOL_WALLET} --worker-name {WORKER_NAME} --api"
+                f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
+                f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
             )
             self.mining_processes["kawpow"] = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
             self.update_miner_stats()  # Start stats updating
@@ -462,36 +490,7 @@ class MiningControlApp:
             self.mining_processes.pop("kawpow", None)
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
-
-    def run_monero_mining(self):
-        """Run the Monero mining process using XMRig."""
-        try:
-            start_cmd = (
-                f"{XMRIG_EXECUTABLE_PATH} --url=xmr-au1.nanopool.org:10343 --tls --user=44zExQJT4PDKRdGWPrXkU8RNsE5jrHMhYiJc2fbp7jCMWuVtwLJCuwyCJkmjtH7TcheWtrH4HoEJo9J4KgnqVWi4UCimiHU "
-                f"--pass=x --coin=monero --print-time=2"
-            )
-            proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
-            self.mining_processes["monero"] = proc  # Store the process separately for management
-
-            for line in iter(proc.stdout.readline, ''):
-                if "miner    speed" in line:
-                    self.update_monero_hashrate(line)
-            proc.stdout.close()
-        except Exception as e:
-            print(f"Error in Monero mining process: {e}")
-        finally:
-            if "monero" in self.mining_processes:
-                self.mining_processes.pop("monero", None)
-            self.update_cpu_hashrate("N/A")
-            self.update_toggle_button_state()
-
-    def update_monero_hashrate(self, output_line):
-        """Update the Monero hashrate based on the XMRig output."""
-        # Example line: [2024-09-02 23:49:05.795]  miner    speed 10s/60s/15m 7359.2 n/a n/a H/s max 7373.7 H/s
-        parts = output_line.split()
-        if len(parts) >= 6:
-            hashrate = f"{parts[5]} H/s"
-            self.update_cpu_hashrate(hashrate)
+            self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
 
     def update_miner_stats(self):
         """Fetch and update miner statistics."""
@@ -593,7 +592,7 @@ class MiningControlApp:
         if self.is_mining_active():
             self.toggle_btn.config(text="Stop Mining", bootstyle="danger")
         else:
-            self.toggle_btn.config(text="Start Mining", bootstyle="primary")
+            self.toggle_btn.config(text="Manual Start", bootstyle="primary")
 
     def on_closing(self):
         """Handle the window close event."""
