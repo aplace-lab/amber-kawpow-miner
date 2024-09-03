@@ -169,26 +169,45 @@ class MiningControlApp:
         """Open the settings window."""
         settings_window = Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x900")
+        settings_window.geometry("400x460")
         settings_window.resizable(False, False)
 
-        self.create_settings_fields(settings_window)
-        self.create_save_button(settings_window)
+        # Create a Notebook (tabbed interface)
+        notebook = ttk.Notebook(settings_window)
+        notebook.pack(fill=BOTH, expand=True)
 
-    def create_settings_fields(self, window):
-        """Create input fields for settings."""
-        self.add_setting_field(window, "CPU Mining Price Threshold ($/kWh):", config["CPU_PRICE_THRESHOLD"], "cpu_price_threshold_entry")
-        self.add_setting_field(window, "GPU Mining Price Threshold ($/kWh):", config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
-        self.add_setting_field(window, "Amber API Site ID:", config["AMBER_API_SITE_ID"], "amber_site_id_entry")
-        self.add_setting_field(window, "Amber API Key:", config["AMBER_API_KEY"], "amber_api_key_entry")
-        self.add_setting_field(window, "Pool Hostname:", config["POOL_HOSTNAME"], "pool_hostname_entry")
-        self.add_setting_field(window, "Pool Port:", str(config["POOL_PORT"]), "pool_port_entry")
-        self.add_setting_field(window, "Pool Wallet:", config["POOL_WALLET"], "pool_wallet_entry")
-        self.add_setting_field(window, "Pool Worker Name:", config["WORKER_NAME"], "worker_name_entry")
-        self.add_setting_field(window, "TeamBlackMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
-        self.create_browse_tbm_button(window)
-        self.add_setting_field(window, "XMRig Executable Path:", config["XMRIG_EXECUTABLE_PATH"], "xmrig_path_entry")
-        self.create_browse_xmr_button(window)
+        # Create tabs
+        general_frame = ttk.Frame(notebook, padding=10)
+        cpu_frame = ttk.Frame(notebook, padding=10)
+        gpu_frame = ttk.Frame(notebook, padding=10)
+
+        notebook.add(general_frame, text="General")
+        notebook.add(cpu_frame, text="CPU")
+        notebook.add(gpu_frame, text="GPU")
+
+        # General settings
+        self.add_setting_field(general_frame, "Amber Site ID:", config["AMBER_API_SITE_ID"], "amber_site_id_entry")
+        self.add_setting_field(general_frame, "Amber API Key:", config["AMBER_API_KEY"], "amber_api_key_entry")
+        self.add_setting_field(general_frame, "Worker Name:", config["WORKER_NAME"], "worker_name_entry")
+        self.add_setting_field(general_frame, "CPU Electricity Cost Threshold ($/kWh):", config["CPU_PRICE_THRESHOLD"], "cpu_price_threshold_entry")
+        self.add_setting_field(general_frame, "GPU Electricity Cost Threshold ($/kWh):", config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
+
+        # CPU Mining settings
+        self.add_setting_field(cpu_frame, "Pool URL:", config.get("CPU_POOL_URL", "xmr-au1.nanopool.org"), "cpu_pool_url_entry")
+        self.add_setting_field(cpu_frame, "Pool Port:", config.get("CPU_POOL_PORT", "10343"), "cpu_pool_port_entry")
+        self.add_setting_field(cpu_frame, "Wallet:", config.get("CPU_WALLET", ""), "cpu_wallet_entry")
+        self.add_setting_field(cpu_frame, "XMRig Executable Path:", config["XMRIG_EXECUTABLE_PATH"], "xmrig_path_entry")
+        self.create_browse_xmr_button(cpu_frame)
+
+        # GPU Mining settings
+        self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["POOL_HOSTNAME"]), "gpu_pool_url_entry")
+        self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["POOL_PORT"])), "gpu_pool_port_entry")
+        self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", config["POOL_WALLET"]), "gpu_wallet_entry")
+        self.add_setting_field(gpu_frame, "TeamBlackMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
+        self.create_browse_tbm_button(gpu_frame)
+
+        # Save button
+        self.create_save_button(settings_window)
 
     def add_setting_field(self, window, label_text, default_value, entry_var_name):
         """Helper method to add a labeled input field to the settings window."""
@@ -235,12 +254,19 @@ class MiningControlApp:
         config["GPU_PRICE_THRESHOLD"] = float(self.gpu_price_threshold_entry.get())
         config["AMBER_API_SITE_ID"] = self.amber_site_id_entry.get()
         config["AMBER_API_KEY"] = self.amber_api_key_entry.get()
-        config["POOL_HOSTNAME"] = self.pool_hostname_entry.get()
-        config["POOL_PORT"] = int(self.pool_port_entry.get())
-        config["POOL_WALLET"] = self.pool_wallet_entry.get()
         config["WORKER_NAME"] = self.worker_name_entry.get()
-        config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
+
+        # CPU Mining settings
+        config["CPU_POOL_URL"] = self.cpu_pool_url_entry.get()
+        config["CPU_POOL_PORT"] = int(self.cpu_pool_port_entry.get())
+        config["CPU_WALLET"] = self.cpu_wallet_entry.get()
         config["XMRIG_EXECUTABLE_PATH"] = self.xmrig_path_entry.get()
+
+        # GPU Mining settings
+        config["GPU_POOL_URL"] = self.gpu_pool_url_entry.get()
+        config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
+        config["GPU_WALLET"] = self.gpu_wallet_entry.get()
+        config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
 
         # Save the updated configuration
         save_config()
@@ -250,6 +276,16 @@ class MiningControlApp:
 
         # Close the settings window after saving
         settings_window.destroy()
+
+    def create_browse_xmr_button(self, window):
+        """Create a button for browsing the XMRig executable."""
+        browse_button = ttk.Button(window, text="Browse...", command=self.browse_xmrig_path)
+        browse_button.pack(anchor=E, padx=10, pady=5)
+
+    def create_browse_tbm_button(self, window):
+        """Create a button for browsing the TBMiner executable."""
+        browse_button = ttk.Button(window, text="Browse...", command=self.browse_tbminer_path)
+        browse_button.pack(anchor=E, padx=10, pady=5)
 
     def reload_config(self):
         """Reload configuration from the file and update global variables."""
