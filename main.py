@@ -65,7 +65,7 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
@@ -99,26 +99,8 @@ def check_for_updates():
 
 def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
-    message = f"A new version ({latest_release}) is available. The application will now update to the latest version."
+    message = f"A new version ({latest_release}) is available. Please update as soon as possible."
     messagebox.showinfo("Update Available", message)
-    download_and_replace_executable(download_url)
-
-def download_and_replace_executable(download_url):
-    """Download the latest version of the executable and replace the current one."""
-    try:
-        response = requests.get(download_url, stream=True)
-        response.raise_for_status()
-
-        with open("new_" + EXECUTABLE_NAME, "wb") as f:
-            shutil.copyfileobj(response.raw, f)
-
-        os.replace("new_" + EXECUTABLE_NAME, EXECUTABLE_NAME)
-        messagebox.showinfo("Update Successful", "The application has been updated to the latest version. Please restart the application.")
-        os._exit(0)  # Exit the application so the user can restart it with the new version
-
-    except Exception as e:
-        print(f"Error downloading or replacing executable: {e}")
-        messagebox.showerror("Update Failed", f"Failed to update the application: {e}")
 
 class MiningControlApp:
     def __init__(self, root):
