@@ -85,21 +85,21 @@ def check_for_updates():
     """Check if the current version is the latest release on GitHub."""
     try:
         response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-        latest_version = response.json()["tag_name"]
+        latest_release = response.json()["tag_name"]
         asset = next(asset for asset in response.json()["assets"] if asset["name"] == EXECUTABLE_NAME)
 
-        if latest_version > VERSION:
+        if latest_release > VERSION:
             download_url = asset["browser_download_url"]
-            prompt_update(latest_version, download_url)
+            prompt_update(latest_release, download_url)
         else:
             print("Application already at latest version")
 
     except Exception as e:
         print(f"Error checking for updates: {e}")
 
-def prompt_update(latest_version, download_url):
+def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
-    message = f"A new version ({latest_version}) is available. The application will now update to the latest version."
+    message = f"A new version ({latest_release}) is available. The application will now update to the latest version."
     messagebox.showinfo("Update Available", message)
     download_and_replace_executable(download_url)
 
