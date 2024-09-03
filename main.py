@@ -8,7 +8,6 @@ import psutil
 import socket
 import json
 import os
-import time
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -51,7 +50,6 @@ XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
 # Static variables
 VERSION = "0.0.8"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
-STOP_MINING_CMD = "taskkill /F /IM TBMiner.exe /IM xmrig.exe"
 
 def save_config():
     """Save the current configuration to a file."""
