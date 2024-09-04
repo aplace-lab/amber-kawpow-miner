@@ -8,7 +8,6 @@ import psutil
 import socket
 import json
 import os
-import shutil
 import win32api
 
 # Configuration file
@@ -68,7 +67,7 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
