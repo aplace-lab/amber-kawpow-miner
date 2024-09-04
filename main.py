@@ -429,15 +429,21 @@ class MiningControlApp:
         global last_fetched_price
         if last_fetched_price is not None:
             self.price_label.config(text=f"General Usage: ${last_fetched_price:.2f}/kWh")
+
             if self.auto_control.get() == 1:
-                if last_fetched_price < CPU_PRICE_THRESHOLD and "monero" not in self.mining_processes:
+                cpu_mining_active = "monero" in self.mining_processes
+                gpu_mining_active = "kawpow" in self.mining_processes
+
+                # Handle CPU mining based on price threshold
+                if last_fetched_price < CPU_PRICE_THRESHOLD and not cpu_mining_active:
                     self.start_cpu_mining()
-                elif last_fetched_price >= CPU_PRICE_THRESHOLD and "monero" in self.mining_processes:
+                elif last_fetched_price >= CPU_PRICE_THRESHOLD and cpu_mining_active:
                     self.stop_cpu_mining()
 
-                if last_fetched_price < GPU_PRICE_THRESHOLD and "kawpow" not in self.mining_processes:
+                # Handle GPU mining based on price threshold
+                if last_fetched_price < GPU_PRICE_THRESHOLD and not gpu_mining_active:
                     self.start_gpu_mining()
-                elif last_fetched_price >= GPU_PRICE_THRESHOLD and "kawpow" in self.mining_processes:
+                elif last_fetched_price >= GPU_PRICE_THRESHOLD and gpu_mining_active:
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
