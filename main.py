@@ -10,6 +10,7 @@ import json
 import os
 import win32api
 import webbrowser
+import logging
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -68,10 +69,18 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.7"
+VERSION = "0.1.8"
+LOG_FILE = "amber-kawpow-miner.log"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
+
+# Configure logging
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 # Variable to store the last fetched electricity price
 last_fetched_price = None
@@ -80,6 +89,7 @@ def save_config():
     """Save the current configuration to a file."""
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
+    logging.info("Preferences saved")
 
 def get_api_url():
     """Construct the Amber API URL based on the site ID and API key."""
@@ -98,10 +108,10 @@ def check_for_updates():
             download_url = asset["browser_download_url"]
             prompt_update(latest_release, download_url)
         else:
-            print("Application already at latest version")
+            logging.info("Application already at latest version")
 
     except Exception as e:
-        print(f"Error checking for updates: {e}")
+        logging.error(f"Error checking for updates: {e}")
 
 def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
@@ -117,6 +127,7 @@ def get_idle_time():
 
 class MiningControlApp:
     def __init__(self, root):
+        logging.info("Application starting")
         self.root = root
         self.root.title("Amber Kawpow & Monero Miner")
         self.root.geometry("650x500")
@@ -124,26 +135,19 @@ class MiningControlApp:
 
         self.mining_processes = {}  # To keep track of subprocesses
 
-        self.create_menu()  # Create the menu bar
+        self.create_menu()          # Create the menu bar
         self.create_main_frame()
         self.create_summary_section()
         self.create_control_section()
         self.create_stats_section()
 
-        # Reload config to ensure all attributes are set
-        self.reload_config()
+        self.reload_config()        # Reload config to ensure all attributes are set
+        check_for_updates()         # Check for updates
+        self.monitor_conditions()   # Start monitoring idle time and price thresholds
+        self.update_price()         # Start fetching the electricity price every 5 minutes
+        logging.info("Application finished loading")
 
-        # Check for updates
-        check_for_updates()
-
-        # Start monitoring idle time and price thresholds
-        self.monitor_conditions()
-
-        # Start fetching the electricity price every 5 minutes
-        self.update_price()
-
-        # Handle window close event
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing) # Handle window close event
 
     def create_menu(self):
         """Create a custom menu bar using a Frame."""
@@ -154,11 +158,61 @@ class MiningControlApp:
         file_menu = ttk.Menu(file_menu_button, tearoff=0)
         file_menu.add_command(label="Preferences", command=self.open_settings)
         file_menu.add_command(label="About", command=self.open_about)
+        file_menu.add_command(label="Logs", command=self.view_logs)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing)
 
         file_menu_button.config(menu=file_menu)
         file_menu_button.pack(side=LEFT)
+
+    def view_logs(self):
+        """Open the log file in a simple text viewer with auto scroll functionality."""
+        try:
+            log_window = Toplevel(self.root)
+            log_window.title("Internal Logs")
+            log_window.geometry("600x400")
+            log_window.resizable(True, True)
+
+            # Create a frame to hold the text widget and scrollbar together
+            log_frame = ttk.Frame(log_window)
+            log_frame.pack(fill=BOTH, expand=True)
+
+            text_widget = ttk.Text(log_frame, wrap="none")
+            text_widget.config(state="disabled")  # Make the text read-only
+            text_widget.grid(row=0, column=0, sticky="nsew")
+
+            # Add a scrollbar
+            scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=text_widget.yview)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            scrollbar.grid(row=0, column=1, sticky="ns")
+
+            # Configure grid weights to allow resizing
+            log_frame.grid_rowconfigure(0, weight=1)
+            log_frame.grid_columnconfigure(0, weight=1)
+
+            # Method to update the logs with auto-scroll
+            def update_logs():
+                try:
+                    with open(LOG_FILE, "r") as file:
+                        log_content = file.read()
+
+                    text_widget.config(state="normal")  # Enable editing temporarily
+                    text_widget.delete("1.0", END)  # Clear the current content
+                    text_widget.insert("1.0", log_content)  # Insert updated content
+                    text_widget.see(END)  # Scroll to the end
+                    text_widget.config(state="disabled")  # Disable editing again
+
+                    # Call this method every 2 seconds to update the logs dynamically
+                    log_window.after(2000, update_logs)
+
+                except Exception as e:
+                    messagebox.showerror("Error", f"Unable to open log file: {e}")
+
+            # Start the first log update
+            update_logs()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Unable to open log file: {e}")
 
     def create_main_frame(self):
         """Create the main frame for the application."""
@@ -369,6 +423,8 @@ class MiningControlApp:
 
         config = load_config()
 
+        logging.info("Config reloading")
+
         # General settings
         CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
         GPU_PRICE_THRESHOLD = float(config["GPU_PRICE_THRESHOLD"])
@@ -404,7 +460,7 @@ class MiningControlApp:
         else:
             self.control_mining_based_on_price()
 
-        self.root.after(1000, self.monitor_conditions)  # Check conditions every second
+        self.root.after(1000, self.monitor_conditions)
 
     def fetch_electricity_price(self):
         """Fetch the current electricity price from the Amber API."""
@@ -422,7 +478,7 @@ class MiningControlApp:
                         last_fetched_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
                         return last_fetched_price
             except Exception as e:
-                print(f"Error accessing current price: {e}")
+                logging.error(f"Error accessing current price: {e}")
                 return None
         else:
             messagebox.showerror("Configuration Error", "Amber API Site ID or API Key is missing.")
@@ -441,19 +497,24 @@ class MiningControlApp:
 
                 # Handle CPU mining based on price threshold
                 if last_fetched_price < CPU_PRICE_THRESHOLD and not cpu_mining_active:
+                    logging.info(f"Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
                     self.start_cpu_mining()
                 elif last_fetched_price >= CPU_PRICE_THRESHOLD and cpu_mining_active:
+                    logging.info(f"Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
                     self.stop_cpu_mining()
 
                 # Handle GPU mining based on price threshold
                 if last_fetched_price < GPU_PRICE_THRESHOLD and not gpu_mining_active:
+                    logging.info(f"Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
                     self.start_gpu_mining()
                 elif last_fetched_price >= GPU_PRICE_THRESHOLD and gpu_mining_active:
+                    logging.info(f"Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
         else:
             self.price_label.config(text="Error retrieving price")
+            logging.warning("Error retrieving price")
 
     def update_price(self):
         """Update the price every 5 minutes by fetching it from the API."""
@@ -471,7 +532,7 @@ class MiningControlApp:
                 check=True
             )
             if "Miner version" in result.stdout:
-                print("TBMiner executable validated successfully.")
+                logging.info("TBMiner executable validated successfully.")
             else:
                 raise ValueError("Invalid TBMiner executable output.")
 
@@ -483,7 +544,7 @@ class MiningControlApp:
                 check=True
             )
             if "XMRig" in result.stdout:
-                print("XMRig executable validated successfully.")
+                logging.info("XMRig executable validated successfully.")
             else:
                 raise ValueError("Invalid XMRig executable output.")
             
@@ -495,8 +556,10 @@ class MiningControlApp:
         """Toggle mining on or off."""
         if self.is_mining_active():
             self.stop_mining()
+            logging.info("Mining manually stopped")
         else:
             self.start_mining()
+            logging.info("Mining manually started")
 
     def start_mining(self):
         """Start both GPU (Kawpow) and CPU (Monero) mining processes."""
@@ -518,6 +581,7 @@ class MiningControlApp:
             
             # Run the monitoring of the subprocess output in a separate thread
             threading.Thread(target=self.monitor_monero_output, args=(proc,), daemon=True).start()
+            logging.info("CPU mining started")
 
     def monitor_monero_output(self, proc):
         """Monitor XMRig output and update CPU hashrate."""
@@ -547,6 +611,7 @@ class MiningControlApp:
         if "kawpow" not in self.mining_processes:
             self.mining_processes["kawpow"] = threading.Thread(target=self.run_kawpow_mining)
             self.mining_processes["kawpow"].start()
+            logging.info("GPU mining started")
 
     def run_kawpow_mining(self):
         """Run the Kawpow (GPU) mining process."""
@@ -559,7 +624,7 @@ class MiningControlApp:
             self.update_miner_stats()  # Start stats updating
             self.mining_processes["kawpow"].wait()  # Wait for the process to complete
         except Exception as e:
-            print(f"Error in Kawpow mining process: {e}")
+            logging.error(f"Error in Kawpow mining process: {e}")
         finally:
             self.mining_processes.pop("kawpow", None)
             self.update_gpu_hashrate("N/A")
@@ -582,7 +647,7 @@ class MiningControlApp:
                 self.populate_gpu_stats(summary_response.get("devices", {}))
 
             except requests.exceptions.RequestException as e:
-                print(f"Error fetching miner stats: {e}")
+                logging.error(f"Error fetching miner stats: {e}")
 
             # Repeat every 2 seconds while mining
             self.root.after(2000, self.update_miner_stats)
@@ -621,17 +686,19 @@ class MiningControlApp:
         """Stop the CPU mining process."""
         if "monero" in self.mining_processes:
             self._stop_mining_process("monero")
+            logging.info("CPU mining stopped")
 
     def stop_gpu_mining(self):
         """Stop the GPU mining process."""
         if "kawpow" in self.mining_processes:
             self._stop_mining_process("kawpow")
+            logging.info("GPU mining stopped")
 
     def _stop_mining_process(self, process_key):
         """Stop a specific mining process and its children."""
         proc = self.mining_processes.get(process_key)
         if proc and proc.poll() is None:
-            print(f"Forcefully killing {process_key} mining process and its children...")
+            logging.info(f"Forcefully killing {process_key} mining process and its children...")
             try:
                 # Use psutil to kill the process and all its children
                 parent = psutil.Process(proc.pid)
@@ -639,9 +706,9 @@ class MiningControlApp:
                     child.kill()
                 parent.kill()
                 parent.wait()  # Ensure the process is fully terminated
-                print(f"{process_key.capitalize()} mining process forcefully terminated.")
+                logging.info(f"{process_key.capitalize()} mining process forcefully terminated.")
             except Exception as e:
-                print(f"Error forcefully terminating {process_key} process: {e}")
+                logging.error(f"Error forcefully terminating {process_key} process: {e}")
         
         self.mining_processes.pop(process_key, None)
 
