@@ -104,7 +104,7 @@ def check_for_updates():
 
 def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
-    message = f"A new version ({latest_release}) is available. Please update as soon as possible."
+    message = f"A new version ({latest_release}) is available at {download_url}. Please update as soon as possible."
     messagebox.showinfo("Update Available", message)
 
 def get_idle_time():
