@@ -9,6 +9,7 @@ import socket
 import json
 import os
 import shutil
+import win32api
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -19,6 +20,8 @@ DEFAULT_CONFIG = {
     "AMBER_API_SITE_ID": "",
     "AMBER_API_KEY": "",
     "WORKER_NAME": socket.gethostname(),
+    "ENABLE_IDLE_MINING": False,
+    "IDLE_TIME_THRESHOLD": 300,  # Time in seconds (e.g., 5 minutes)
     
     # CPU Mining settings
     "CPU_POOL_URL": "xmr-au1.nanopool.org",
@@ -70,6 +73,9 @@ TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
 
+# Variable to store the last fetched electricity price
+last_fetched_price = None
+
 def save_config():
     """Save the current configuration to a file."""
     with open(CONFIG_FILE, "w") as f:
@@ -102,6 +108,10 @@ def prompt_update(latest_release, download_url):
     message = f"A new version ({latest_release}) is available. Please update as soon as possible."
     messagebox.showinfo("Update Available", message)
 
+def get_idle_time():
+    """Get the system idle time in seconds."""
+    return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
+
 class MiningControlApp:
     def __init__(self, root):
         self.root = root
@@ -122,6 +132,12 @@ class MiningControlApp:
 
         # Check for updates
         check_for_updates()
+
+        # Start monitoring idle time and price thresholds
+        self.monitor_conditions()
+
+        # Start fetching the electricity price every 5 minutes
+        self.update_price()
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -215,7 +231,7 @@ class MiningControlApp:
         """Open the settings window."""
         settings_window = Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x460")
+        settings_window.geometry("400x560")
         settings_window.resizable(False, False)
 
         # Create a Notebook (tabbed interface)
@@ -237,6 +253,16 @@ class MiningControlApp:
         self.add_setting_field(general_frame, "Worker Name:", config["WORKER_NAME"], "worker_name_entry")
         self.add_setting_field(general_frame, "CPU Electricity Cost Threshold ($/kWh):", config["CPU_PRICE_THRESHOLD"], "cpu_price_threshold_entry")
         self.add_setting_field(general_frame, "GPU Electricity Cost Threshold ($/kWh):", config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
+        self.add_setting_field(general_frame, "Idle Time Threshold (seconds):", config["IDLE_TIME_THRESHOLD"], "idle_time_threshold_entry")
+
+        self.enable_idle_mining_var = ttk.IntVar(value=config.get("ENABLE_IDLE_MINING", 0))
+        self.enable_idle_mining = ttk.Checkbutton(
+            general_frame, 
+            text="Enable Idle Mining",
+            variable=self.enable_idle_mining_var,
+            bootstyle="round-toggle"
+        )
+        self.enable_idle_mining.pack(anchor=W, pady=(10, 0))
 
         # CPU Mining settings
         self.add_setting_field(cpu_frame, "Pool URL:", config.get("CPU_POOL_URL", config["CPU_POOL_URL"]), "cpu_pool_url_entry")
@@ -302,6 +328,8 @@ class MiningControlApp:
         config["AMBER_API_SITE_ID"] = self.amber_site_id_entry.get()
         config["AMBER_API_KEY"] = self.amber_api_key_entry.get()
         config["WORKER_NAME"] = self.worker_name_entry.get()
+        config["ENABLE_IDLE_MINING"] = self.enable_idle_mining_var.get()
+        config["IDLE_TIME_THRESHOLD"] = int(self.idle_time_threshold_entry.get())
 
         # CPU Mining settings
         config["CPU_POOL_URL"] = self.cpu_pool_url_entry.get()
@@ -360,11 +388,24 @@ class MiningControlApp:
         # Validate miner executables on startup
         self.validate_miner_executables()
 
-        # Start the price update loop
-        self.update_price()
+    def monitor_conditions(self):
+        """Monitor idle time and price conditions to control mining."""
+        if config.get("ENABLE_IDLE_MINING", False):
+            idle_time = get_idle_time()
+            idle_threshold = int(config["IDLE_TIME_THRESHOLD"])
 
-    def get_current_price(self):
+            if idle_time >= idle_threshold:
+                self.control_mining_based_on_price()
+            else:
+                self.stop_mining()
+        else:
+            self.control_mining_based_on_price()
+
+        self.root.after(1000, self.monitor_conditions)  # Check conditions every second
+
+    def fetch_electricity_price(self):
         """Fetch the current electricity price from the Amber API."""
+        global last_fetched_price
         api_url = get_api_url()
         if api_url:
             headers = {
@@ -375,8 +416,8 @@ class MiningControlApp:
                 data = response.json()
                 for entry in data:
                     if entry['channelType'] == 'general':
-                        current_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
-                        return current_price
+                        last_fetched_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
+                        return last_fetched_price
             except Exception as e:
                 print(f"Error accessing current price: {e}")
                 return None
@@ -384,33 +425,29 @@ class MiningControlApp:
             messagebox.showerror("Configuration Error", "Amber API Site ID or API Key is missing.")
             return None
 
-    def update_price(self):
-        """Update the price label and control mining based on the current price."""
-        current_price = self.get_current_price()
-        if current_price is not None:
-            self.price_label.config(text=f"General Usage: ${current_price:.2f}/kWh")
+    def control_mining_based_on_price(self):
+        """Control mining based on the last fetched electricity price."""
+        global last_fetched_price
+        if last_fetched_price is not None:
+            self.price_label.config(text=f"General Usage: ${last_fetched_price:.2f}/kWh")
             if self.auto_control.get() == 1:
-                cpu_threshold = CPU_PRICE_THRESHOLD
-                gpu_threshold = GPU_PRICE_THRESHOLD
+                if last_fetched_price < CPU_PRICE_THRESHOLD and "monero" not in self.mining_processes:
+                    self.start_cpu_mining()
+                elif last_fetched_price >= CPU_PRICE_THRESHOLD and "monero" in self.mining_processes:
+                    self.stop_cpu_mining()
 
-                if current_price < cpu_threshold:
-                    if "monero" not in self.mining_processes:
-                        self.start_cpu_mining()
-                else:
-                    if "monero" in self.mining_processes:
-                        self.stop_cpu_mining()
-
-                if current_price < gpu_threshold:
-                    if "kawpow" not in self.mining_processes:
-                        self.start_gpu_mining()
-                else:
-                    if "kawpow" in self.mining_processes:
-                        self.stop_gpu_mining()
+                if last_fetched_price < GPU_PRICE_THRESHOLD and "kawpow" not in self.mining_processes:
+                    self.start_gpu_mining()
+                elif last_fetched_price >= GPU_PRICE_THRESHOLD and "kawpow" in self.mining_processes:
+                    self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
         else:
             self.price_label.config(text="Error retrieving price")
 
+    def update_price(self):
+        """Update the price every 5 minutes by fetching it from the API."""
+        self.fetch_electricity_price()
         self.root.after(300000, self.update_price)  # Update every 5 minutes
 
     def validate_miner_executables(self):
