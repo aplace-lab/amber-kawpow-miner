@@ -68,7 +68,7 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
@@ -685,6 +685,7 @@ class MiningControlApp:
 
 def main():
     root = ttk.Window(themename="darkly")
+    root.iconbitmap("logo.ico")
     app = MiningControlApp(root)
     root.mainloop()
 
