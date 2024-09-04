@@ -662,7 +662,15 @@ class MiningControlApp:
         if self.is_mining_active():
             self.toggle_btn.config(text="Stop Mining", bootstyle="danger")
         else:
-            self.toggle_btn.config(text="Manual Start", bootstyle="primary")
+            if self.auto_control.get() == 1:
+                if last_fetched_price is not None and (
+                    last_fetched_price >= CPU_PRICE_THRESHOLD and last_fetched_price >= GPU_PRICE_THRESHOLD
+                ):
+                    self.toggle_btn.config(text="Price too high", bootstyle="warning")
+                elif config.get("ENABLE_IDLE_MINING", False) and get_idle_time() < int(config["IDLE_TIME_THRESHOLD"]):
+                    self.toggle_btn.config(text="Waiting on idle", bootstyle="warning")
+            else:
+                self.toggle_btn.config(text="Manual Start", bootstyle="primary")
 
     def on_closing(self):
         """Handle the window close event."""
