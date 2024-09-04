@@ -499,7 +499,7 @@ class MiningControlApp:
         """Start the CPU (Monero) mining process."""
         if "monero" not in self.mining_processes:
             start_cmd = (
-                f"{XMRIG_EXECUTABLE_PATH} --url=xmr-au1.nanopool.org:10343 --tls --user=44zExQJT4PDKRdGWPrXkU8RNsE5jrHMhYiJc2fbp7jCMWuVtwLJCuwyCJkmjtH7TcheWtrH4HoEJo9J4KgnqVWi4UCimiHU "
+                f"{XMRIG_EXECUTABLE_PATH} --url={self.cpu_pool_url}:{self.cpu_pool_port} --tls --user={self.cpu_wallet} "
                 f"--pass=x --coin=monero --print-time=2"
             )
             proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
