@@ -9,6 +9,7 @@ import socket
 import json
 import os
 import win32api
+import webbrowser
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -67,7 +68,7 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
@@ -104,8 +105,11 @@ def check_for_updates():
 
 def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
-    message = f"A new version ({latest_release}) is available at {download_url}. Please update as soon as possible."
-    messagebox.showinfo("Update Available", message)
+    message = f"A new version ({latest_release}) is available. Would you like to download now?"
+    response = messagebox.askokcancel("Update Available", message)
+    
+    if response:
+        webbrowser.open(download_url)
 
 def get_idle_time():
     """Get the system idle time in seconds."""
