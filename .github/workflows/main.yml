@@ -24,7 +24,7 @@ jobs:
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
     - name: Build executable with PyInstaller
-      run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --icon="logo.ico" --uac-admin
+      run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico;." --icon="logo.ico" --uac-admin
 
     - name: Upload artifact
       uses: actions/upload-artifact@v2

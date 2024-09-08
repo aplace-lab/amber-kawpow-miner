@@ -7,6 +7,7 @@ import threading
 import psutil
 import socket
 import json
+import sys
 import os
 import win32api
 import webbrowser
@@ -69,7 +70,7 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 LOG_FILE = "amber-kawpow-miner.log"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
@@ -750,9 +751,20 @@ class MiningControlApp:
         finally:
             self.root.destroy()
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
 def main():
     root = ttk.Window(themename="darkly")
-    root.iconbitmap("logo.ico")
+    iconPath = resource_path('logo.ico')
+    root.iconbitmap(iconPath)
     app = MiningControlApp(root)
     root.mainloop()
 
