@@ -90,7 +90,7 @@ def save_config():
     """Save the current configuration to a file."""
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
-    logging.info("Preferences saved")
+    logging.info("Controller: Preferences saved")
 
 def get_api_url():
     """Construct the Amber API URL based on the site ID and API key."""
@@ -109,10 +109,10 @@ def check_for_updates():
             download_url = asset["browser_download_url"]
             prompt_update(latest_release, download_url)
         else:
-            logging.info("Application already at latest version")
+            logging.info("Controller: Application already at latest version")
 
     except Exception as e:
-        logging.error(f"Error checking for updates: {e}")
+        logging.error(f"Controller: Error checking for updates: {e}")
 
 def prompt_update(latest_release, download_url):
     """Prompt the user to update to the latest version and download the new executable."""
@@ -128,7 +128,7 @@ def get_idle_time():
 
 class MiningControlApp:
     def __init__(self, root):
-        logging.info("Application starting")
+        logging.info("Controller: Application starting")
         self.root = root
         self.root.title("Amber Kawpow & Monero Miner")
         self.root.geometry("650x500")
@@ -146,7 +146,7 @@ class MiningControlApp:
         check_for_updates()         # Check for updates
         self.monitor_conditions()   # Start monitoring idle time and price thresholds
         self.update_price()         # Start fetching the electricity price every 5 minutes
-        logging.info("Application finished loading")
+        logging.info("Controller: Application finished loading")
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing) # Handle window close event
 
@@ -424,7 +424,7 @@ class MiningControlApp:
 
         config = load_config()
 
-        logging.info("Config reloading")
+        logging.info("Controller: Config reloading")
 
         # General settings
         CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
@@ -479,7 +479,7 @@ class MiningControlApp:
                         last_fetched_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
                         return last_fetched_price
             except Exception as e:
-                logging.error(f"Error accessing current price: {e}")
+                logging.error(f"Controller: Error accessing current price: {e}")
                 return None
         else:
             messagebox.showerror("Configuration Error", "Amber API Site ID or API Key is missing.")
@@ -498,18 +498,18 @@ class MiningControlApp:
 
                 # Handle CPU mining based on price threshold
                 if last_fetched_price < CPU_PRICE_THRESHOLD and not cpu_mining_active:
-                    logging.info(f"Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
                     self.start_cpu_mining()
                 elif last_fetched_price >= CPU_PRICE_THRESHOLD and cpu_mining_active:
-                    logging.info(f"Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
                     self.stop_cpu_mining()
 
                 # Handle GPU mining based on price threshold
                 if last_fetched_price < GPU_PRICE_THRESHOLD and not gpu_mining_active:
-                    logging.info(f"Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
                     self.start_gpu_mining()
                 elif last_fetched_price >= GPU_PRICE_THRESHOLD and gpu_mining_active:
-                    logging.info(f"Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
@@ -533,7 +533,7 @@ class MiningControlApp:
                 check=True
             )
             if "Miner version" in result.stdout:
-                logging.info("TBMiner executable validated successfully.")
+                logging.info("Controller: TBMiner executable validated successfully.")
             else:
                 raise ValueError("Invalid TBMiner executable output.")
 
@@ -545,7 +545,7 @@ class MiningControlApp:
                 check=True
             )
             if "XMRig" in result.stdout:
-                logging.info("XMRig executable validated successfully.")
+                logging.info("Controller: XMRig executable validated successfully.")
             else:
                 raise ValueError("Invalid XMRig executable output.")
             
@@ -557,10 +557,10 @@ class MiningControlApp:
         """Toggle mining on or off."""
         if self.is_mining_active():
             self.stop_mining()
-            logging.info("Mining manually stopped")
+            logging.info("Controller: Mining manually stopped")
         else:
             self.start_mining()
-            logging.info("Mining manually started")
+            logging.info("Controller: Mining manually started")
 
     def start_mining(self):
         """Start both GPU (Kawpow) and CPU (Monero) mining processes."""
@@ -582,14 +582,16 @@ class MiningControlApp:
             
             # Run the monitoring of the subprocess output in a separate thread
             threading.Thread(target=self.monitor_monero_output, args=(proc,), daemon=True).start()
-            logging.info("CPU mining started")
+            logging.info("Controller: CPU mining started")
 
     def monitor_monero_output(self, proc):
-        """Monitor XMRig output and update CPU hashrate."""
+        """Monitor XMRig output and log it to file."""
         try:
             for line in iter(proc.stdout.readline, ''):
                 if "miner    speed" in line:
                     self.update_monero_hashrate(line)
+                elif len(line) > 2:
+                    logging.info(f"XMRig: {line.strip()}")
             proc.stdout.close()
         finally:
             if proc.poll() is None:
@@ -612,7 +614,7 @@ class MiningControlApp:
         if "kawpow" not in self.mining_processes:
             self.mining_processes["kawpow"] = threading.Thread(target=self.run_kawpow_mining)
             self.mining_processes["kawpow"].start()
-            logging.info("GPU mining started")
+            logging.info("Controller: GPU mining started")
 
     def run_kawpow_mining(self):
         """Run the Kawpow (GPU) mining process."""
@@ -621,12 +623,33 @@ class MiningControlApp:
                 f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
                 f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
             )
-            self.mining_processes["kawpow"] = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+            proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+            self.mining_processes["kawpow"] = proc  # Track the process
+            
+            # Log the output
+            threading.Thread(target=self.monitor_kawpow_output, args=(proc,), daemon=True).start()
             self.update_miner_stats()  # Start stats updating
-            self.mining_processes["kawpow"].wait()  # Wait for the process to complete
+            proc.wait()  # Wait for the process to complete
         except Exception as e:
-            logging.error(f"Error in Kawpow mining process: {e}")
+            logging.error(f"Controller: Error in Kawpow mining process: {e}")
         finally:
+            self.mining_processes.pop("kawpow", None)
+            self.update_gpu_hashrate("N/A")
+            self.clear_gpu_stats()
+            self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
+
+    def monitor_kawpow_output(self, proc):
+        """Monitor TBMiner (Kawpow) output and log it to file."""
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                if line:
+                    logging.info(f"TBMiner: {line.strip()}")
+            proc.stdout.close()
+        except Exception as e:
+            logging.error(f"Controller: Error in Kawpow mining process: {e}")
+        finally:
+            if proc.poll() is None:
+                proc.wait()
             self.mining_processes.pop("kawpow", None)
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
@@ -648,7 +671,7 @@ class MiningControlApp:
                 self.populate_gpu_stats(summary_response.get("devices", {}))
 
             except requests.exceptions.RequestException as e:
-                logging.error(f"Error fetching miner stats: {e}")
+                logging.error(f"Controller: Error fetching miner stats: {e}")
 
             # Repeat every 2 seconds while mining
             self.root.after(2000, self.update_miner_stats)
@@ -687,19 +710,19 @@ class MiningControlApp:
         """Stop the CPU mining process."""
         if "monero" in self.mining_processes:
             self._stop_mining_process("monero")
-            logging.info("CPU mining stopped")
+            logging.info("Controller: CPU mining stopped")
 
     def stop_gpu_mining(self):
         """Stop the GPU mining process."""
         if "kawpow" in self.mining_processes:
             self._stop_mining_process("kawpow")
-            logging.info("GPU mining stopped")
+            logging.info("Controller: GPU mining stopped")
 
     def _stop_mining_process(self, process_key):
         """Stop a specific mining process and its children."""
         proc = self.mining_processes.get(process_key)
         if proc and proc.poll() is None:
-            logging.info(f"Forcefully killing {process_key} mining process and its children...")
+            logging.info(f"Controller: Forcefully killing {process_key} mining process and its children...")
             try:
                 # Use psutil to kill the process and all its children
                 parent = psutil.Process(proc.pid)
@@ -707,9 +730,9 @@ class MiningControlApp:
                     child.kill()
                 parent.kill()
                 parent.wait()  # Ensure the process is fully terminated
-                logging.info(f"{process_key.capitalize()} mining process forcefully terminated.")
+                logging.info(f"Controller: {process_key.capitalize()} mining process forcefully terminated.")
             except Exception as e:
-                logging.error(f"Error forcefully terminating {process_key} process: {e}")
+                logging.error(f"Controller: Error forcefully terminating {process_key} process: {e}")
         
         self.mining_processes.pop(process_key, None)
 
