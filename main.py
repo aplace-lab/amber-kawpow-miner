@@ -12,6 +12,7 @@ import os
 import win32api
 import webbrowser
 import logging
+from logging.handlers import RotatingFileHandler 
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -70,15 +71,21 @@ GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 
 # Static variables
-VERSION = "0.1.10"
+VERSION = "0.1.11"
 LOG_FILE = "amber-kawpow-miner.log"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
 
 # Configure logging
+# 1 MB logs, keep 1 backup
+log_handler = RotatingFileHandler( 
+    LOG_FILE, 
+    maxBytes=1*1024*1024, 
+    backupCount=2
+) 
 logging.basicConfig(
-    filename=LOG_FILE,
+    handlers=[log_handler], 
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
