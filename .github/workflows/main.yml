@@ -27,7 +27,7 @@ jobs:
       run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico;." --icon="logo.ico" --uac-admin
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: amber-kawpow-miner
         path: dist\amber-kawpow-miner.exe
