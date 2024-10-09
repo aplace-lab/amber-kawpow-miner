@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     "GPU_POOL_URL": "rvn.2miners.com",
     "GPU_POOL_PORT": 6060,
     "GPU_WALLET": "",
+    "GPU_TYPE": "Nvidia+AMD",
     "TBM_EXECUTABLE_PATH": r".\TBMiner.exe",
     "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe"
 }
@@ -69,6 +70,7 @@ XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
 GPU_POOL_URL = config["GPU_POOL_URL"]
 GPU_POOL_PORT = int(config["GPU_POOL_PORT"])
 GPU_WALLET = config["GPU_WALLET"]
+GPU_TYPE = config.get("GPU_TYPE", "Nvidia+AMD")
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
 TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
 
@@ -350,6 +352,18 @@ class MiningControlApp:
         self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["GPU_POOL_URL"]), "gpu_pool_url_entry")
         self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["GPU_POOL_PORT"])), "gpu_pool_port_entry")
         self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", ""), "gpu_wallet_entry")
+
+        # GPU Type dropdown
+        ttk.Label(gpu_frame, text="GPU Type:").pack(anchor=W, padx=10, pady=5)
+        self.gpu_type_var = ttk.StringVar(value=config.get("GPU_TYPE", "Nvidia+AMD"))
+        self.gpu_type_dropdown = ttk.Combobox(
+            gpu_frame,
+            textvariable=self.gpu_type_var,
+            values=["Nvidia", "Nvidia+AMD", "AMD"],
+            state="readonly"
+        )
+        self.gpu_type_dropdown.pack(fill=X, padx=10, pady=5)
+
         self.add_setting_field(gpu_frame, "TBMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
         self.create_browse_tbm_button(gpu_frame)
         self.add_setting_field(gpu_frame, "TeamRedMiner Executable Path:", config["TEAMREDMINER_EXECUTABLE_PATH"], "teamredminer_path_entry")
@@ -409,7 +423,7 @@ class MiningControlApp:
 
     def save_settings(self, settings_window):
         """Save the settings from the input fields."""
-        global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
+        global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH, GPU_TYPE
 
         # Update the config dictionary with the new settings
         config["CPU_PRICE_THRESHOLD"] = float(self.cpu_price_threshold_entry.get())
@@ -430,6 +444,7 @@ class MiningControlApp:
         config["GPU_POOL_URL"] = self.gpu_pool_url_entry.get()
         config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
         config["GPU_WALLET"] = self.gpu_wallet_entry.get()
+        config["GPU_TYPE"] = self.gpu_type_var.get()
         config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
         config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.get()
 
@@ -442,7 +457,7 @@ class MiningControlApp:
 
     def reload_config(self):
         """Reload configuration from the file and update global variables."""
-        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
+        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH, GPU_TYPE
 
         config = load_config()
 
@@ -465,6 +480,7 @@ class MiningControlApp:
         self.gpu_pool_url = config["GPU_POOL_URL"]
         self.gpu_pool_port = int(config["GPU_POOL_PORT"])
         self.gpu_wallet = config["GPU_WALLET"]
+        GPU_TYPE = config.get("GPU_TYPE", "Nvidia+AMD")
         TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
         TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
 
@@ -517,7 +533,7 @@ class MiningControlApp:
 
             if self.auto_control.get() == 1:
                 cpu_mining_active = "monero" in self.mining_processes
-                gpu_mining_active = "kawpow" in self.mining_processes
+                gpu_mining_active = "gpu_mining" in self.mining_processes
 
                 # Handle CPU mining based on price threshold
                 if last_fetched_price < CPU_PRICE_THRESHOLD and not cpu_mining_active:
@@ -548,29 +564,32 @@ class MiningControlApp:
     def validate_miner_executables(self):
         """Validate the miner executables by checking their versions."""
         try:
-            # Validate TBMiner
-            result = subprocess.run(
-                [TBM_EXECUTABLE_PATH, '--version'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            if "Miner version" in result.stdout:
-                logging.info("Controller: TBMiner executable validated successfully.")
-            else:
-                raise ValueError("Invalid TBMiner executable output.")
+            # Validate miners based on GPU_TYPE
+            if GPU_TYPE in ["Nvidia", "Nvidia+AMD"]:
+                # Validate TBMiner
+                result = subprocess.run(
+                    [TBM_EXECUTABLE_PATH, '--version'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                if "Miner version" in result.stdout:
+                    logging.info("Controller: TBMiner executable validated successfully.")
+                else:
+                    raise ValueError("Invalid TBMiner executable output.")
 
-            # Validate TeamRedMiner
-            result = subprocess.run(
-                [TEAMREDMINER_EXECUTABLE_PATH, '--version'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            if "Team Red Miner version" in result.stdout or "TeamRedMiner" in result.stdout:
-                logging.info("Controller: TeamRedMiner executable validated successfully.")
-            else:
-                raise ValueError("Invalid TeamRedMiner executable output.")
+            if GPU_TYPE in ["AMD", "Nvidia+AMD"]:
+                # Validate TeamRedMiner
+                result = subprocess.run(
+                    [TEAMREDMINER_EXECUTABLE_PATH, '--version'],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                if "Team Red Miner version" in result.stdout or "TeamRedMiner" in result.stdout:
+                    logging.info("Controller: TeamRedMiner executable validated successfully.")
+                else:
+                    raise ValueError("Invalid TeamRedMiner executable output.")
 
             # Validate XMRig
             result = subprocess.run(
@@ -645,46 +664,51 @@ class MiningControlApp:
             self.update_cpu_hashrate(hashrate)
 
     def start_gpu_mining(self):
-        """Start the GPU mining processes (both TBMiner and TeamRedMiner)."""
-        if "kawpow" not in self.mining_processes:
-            self.mining_processes["kawpow"] = threading.Thread(target=self.run_kawpow_mining)
-            self.mining_processes["kawpow"].start()
+        """Start the GPU mining processes based on GPU_TYPE."""
+        if "gpu_mining" not in self.mining_processes:
+            self.mining_processes["gpu_mining"] = threading.Thread(target=self.run_gpu_mining)
+            self.mining_processes["gpu_mining"].start()
             logging.info("Controller: GPU mining started")
 
-    def run_kawpow_mining(self):
-        """Run the Kawpow (GPU) mining processes."""
+    def run_gpu_mining(self):
+        """Run the GPU mining processes based on GPU_TYPE."""
         try:
-            # Start TBMiner
-            tbm_cmd = (
-                f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
-                f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
-            )
-            tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
-            self.mining_processes["tbminer"] = tbm_proc
+            if GPU_TYPE in ["Nvidia", "Nvidia+AMD"]:
+                # Start TBMiner
+                tbm_cmd = (
+                    f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
+                    f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
+                )
+                tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+                self.mining_processes["tbminer"] = tbm_proc
 
-            threading.Thread(target=self.monitor_tbm_output, args=(tbm_proc,), daemon=True).start()
+                threading.Thread(target=self.monitor_tbm_output, args=(tbm_proc,), daemon=True).start()
 
-            # Start TeamRedMiner
-            trm_cmd = (
-                f"{TEAMREDMINER_EXECUTABLE_PATH} -a kawpow -o stratum+tcp://{self.gpu_pool_url}:{self.gpu_pool_port} "
-                f"-u {self.gpu_wallet}.{WORKER_NAME} -p x --api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
-            )
-            trm_proc = subprocess.Popen(trm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
-            self.mining_processes["teamredminer"] = trm_proc
+            if GPU_TYPE in ["AMD", "Nvidia+AMD"]:
+                # Start TeamRedMiner
+                trm_cmd = (
+                    f"{TEAMREDMINER_EXECUTABLE_PATH} -a kawpow -o stratum+tcp://{self.gpu_pool_url}:{self.gpu_pool_port} "
+                    f"-u {self.gpu_wallet}.{WORKER_NAME} -p x --api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
+                )
+                trm_proc = subprocess.Popen(trm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+                self.mining_processes["teamredminer"] = trm_proc
 
-            threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
+                threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
 
             self.update_miner_stats()  # Start stats updating
 
-            # Wait for both miners to finish
-            tbm_proc.wait()
-            trm_proc.wait()
+            # Wait for miners to finish
+            if "tbminer" in self.mining_processes:
+                self.mining_processes["tbminer"].wait()
+            if "teamredminer" in self.mining_processes:
+                self.mining_processes["teamredminer"].wait()
 
         except Exception as e:
-            logging.error(f"Controller: Error in Kawpow mining processes: {e}")
+            logging.error(f"Controller: Error in GPU mining processes: {e}")
         finally:
             self.mining_processes.pop("tbminer", None)
             self.mining_processes.pop("teamredminer", None)
+            self.mining_processes.pop("gpu_mining", None)
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
             self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
