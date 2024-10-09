@@ -36,7 +36,8 @@ DEFAULT_CONFIG = {
     "GPU_POOL_URL": "rvn.2miners.com",
     "GPU_POOL_PORT": 6060,
     "GPU_WALLET": "",
-    "TBM_EXECUTABLE_PATH": r".\TBMiner.exe"
+    "TBM_EXECUTABLE_PATH": r".\TBMiner.exe",
+    "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe"
 }
 
 # Load or initialize configuration
@@ -69,11 +70,14 @@ GPU_POOL_URL = config["GPU_POOL_URL"]
 GPU_POOL_PORT = int(config["GPU_POOL_PORT"])
 GPU_WALLET = config["GPU_WALLET"]
 TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
 
 # Static variables
 VERSION = "0.1.11"
 LOG_FILE = "amber-kawpow-miner.log"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
+TEAMREDMINER_API_HOST = '127.0.0.1'
+TEAMREDMINER_API_PORT = 4067
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
 
@@ -132,6 +136,12 @@ def prompt_update(latest_release, download_url):
 def get_idle_time():
     """Get the system idle time in seconds."""
     return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
+
+def jsonrpc(ip, port, command):
+    with socket.create_connection((ip, port)) as s:
+        s.sendall(json.dumps(command).encode())
+        response = b"".join(iter(lambda: s.recv(4096), b""))
+    return json.loads(response.decode().replace('\x00', ''))
 
 class MiningControlApp:
     def __init__(self, root):
@@ -264,7 +274,7 @@ class MiningControlApp:
         stats_frame = ttk.Labelframe(self.main_frame, text="Statistics", padding=(10, 10))
         stats_frame.pack(fill=BOTH, expand=True, pady=(0, 10))
 
-        self.stats_tree = ttk.Treeview(stats_frame, columns=("gpu", "temp", "power", "fan", "hashrate"), show='headings', height=5)
+        self.stats_tree = ttk.Treeview(stats_frame, columns=("gpu", "temp", "power", "fan", "hashrate"), show='headings', height=10)
         self.stats_tree.pack(fill=BOTH, expand=True)
 
         self.stats_tree.heading("gpu", text="GPU")
@@ -296,7 +306,7 @@ class MiningControlApp:
         """Open the settings window."""
         settings_window = Toplevel(self.root)
         settings_window.title("Settings")
-        settings_window.geometry("400x560")
+        settings_window.geometry("400x600")
         settings_window.resizable(False, False)
 
         # Create a Notebook (tabbed interface)
@@ -340,8 +350,10 @@ class MiningControlApp:
         self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["GPU_POOL_URL"]), "gpu_pool_url_entry")
         self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["GPU_POOL_PORT"])), "gpu_pool_port_entry")
         self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", ""), "gpu_wallet_entry")
-        self.add_setting_field(gpu_frame, "TeamBlackMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
+        self.add_setting_field(gpu_frame, "TBMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
         self.create_browse_tbm_button(gpu_frame)
+        self.add_setting_field(gpu_frame, "TeamRedMiner Executable Path:", config["TEAMREDMINER_EXECUTABLE_PATH"], "teamredminer_path_entry")
+        self.create_browse_trm_button(gpu_frame)
 
         # Save button
         self.create_save_button(settings_window)
@@ -357,6 +369,11 @@ class MiningControlApp:
     def create_browse_tbm_button(self, window):
         """Create a button for browsing the TBMiner executable."""
         browse_button = ttk.Button(window, text="Browse...", command=self.browse_tbminer_path)
+        browse_button.pack(anchor=E, padx=10, pady=5)
+
+    def create_browse_trm_button(self, window):
+        """Create a button for browsing the TeamRedMiner executable."""
+        browse_button = ttk.Button(window, text="Browse...", command=self.browse_trm_path)
         browse_button.pack(anchor=E, padx=10, pady=5)
 
     def create_browse_xmr_button(self, window):
@@ -376,8 +393,15 @@ class MiningControlApp:
             self.tbminer_path_entry.delete(0, END)
             self.tbminer_path_entry.insert(0, file_path)
 
+    def browse_trm_path(self):
+        """Open a file dialog to browse for the TeamRedMiner executable."""
+        file_path = filedialog.askopenfilename(title="Select TeamRedMiner Executable", filetypes=[("Executable Files", "*.exe")])
+        if file_path:
+            self.teamredminer_path_entry.delete(0, END)
+            self.teamredminer_path_entry.insert(0, file_path)
+
     def browse_xmrig_path(self):
-        """Open a file dialog to browse for the TBMiner executable."""
+        """Open a file dialog to browse for the XMRig executable."""
         file_path = filedialog.askopenfilename(title="Select XMRig Executable", filetypes=[("Executable Files", "*.exe")])
         if file_path:
             self.xmrig_path_entry.delete(0, END)
@@ -385,7 +409,7 @@ class MiningControlApp:
 
     def save_settings(self, settings_window):
         """Save the settings from the input fields."""
-        global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
+        global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
 
         # Update the config dictionary with the new settings
         config["CPU_PRICE_THRESHOLD"] = float(self.cpu_price_threshold_entry.get())
@@ -407,6 +431,7 @@ class MiningControlApp:
         config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
         config["GPU_WALLET"] = self.gpu_wallet_entry.get()
         config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
+        config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.get()
 
         # Save the updated configuration
         save_config()
@@ -415,19 +440,9 @@ class MiningControlApp:
         settings_window.destroy()
         self.reload_config()  # Reload the config after the settings window is destroyed
 
-    def create_browse_xmr_button(self, window):
-        """Create a button for browsing the XMRig executable."""
-        browse_button = ttk.Button(window, text="Browse...", command=self.browse_xmrig_path)
-        browse_button.pack(anchor=E, padx=10, pady=5)
-
-    def create_browse_tbm_button(self, window):
-        """Create a button for browsing the TBMiner executable."""
-        browse_button = ttk.Button(window, text="Browse...", command=self.browse_tbminer_path)
-        browse_button.pack(anchor=E, padx=10, pady=5)
-
     def reload_config(self):
         """Reload configuration from the file and update global variables."""
-        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
+        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH
 
         config = load_config()
 
@@ -451,6 +466,7 @@ class MiningControlApp:
         self.gpu_pool_port = int(config["GPU_POOL_PORT"])
         self.gpu_wallet = config["GPU_WALLET"]
         TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
+        TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
 
         # Validate miner executables on startup
         self.validate_miner_executables()
@@ -513,10 +529,10 @@ class MiningControlApp:
 
                 # Handle GPU mining based on price threshold
                 if last_fetched_price < GPU_PRICE_THRESHOLD and not gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {GPU_PRICE_THRESHOLD})")
                     self.start_gpu_mining()
                 elif last_fetched_price >= GPU_PRICE_THRESHOLD and gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
+                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {GPU_PRICE_THRESHOLD})")
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
@@ -543,6 +559,18 @@ class MiningControlApp:
                 logging.info("Controller: TBMiner executable validated successfully.")
             else:
                 raise ValueError("Invalid TBMiner executable output.")
+
+            # Validate TeamRedMiner
+            result = subprocess.run(
+                [TEAMREDMINER_EXECUTABLE_PATH, '--version'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            if "Team Red Miner version" in result.stdout or "TeamRedMiner" in result.stdout:
+                logging.info("Controller: TeamRedMiner executable validated successfully.")
+            else:
+                raise ValueError("Invalid TeamRedMiner executable output.")
 
             # Validate XMRig
             result = subprocess.run(
@@ -617,78 +645,129 @@ class MiningControlApp:
             self.update_cpu_hashrate(hashrate)
 
     def start_gpu_mining(self):
-        """Start the GPU (Kawpow) mining process."""
+        """Start the GPU mining processes (both TBMiner and TeamRedMiner)."""
         if "kawpow" not in self.mining_processes:
             self.mining_processes["kawpow"] = threading.Thread(target=self.run_kawpow_mining)
             self.mining_processes["kawpow"].start()
             logging.info("Controller: GPU mining started")
 
     def run_kawpow_mining(self):
-        """Run the Kawpow (GPU) mining process."""
+        """Run the Kawpow (GPU) mining processes."""
         try:
-            start_cmd = (
+            # Start TBMiner
+            tbm_cmd = (
                 f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
                 f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
             )
-            proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
-            self.mining_processes["kawpow"] = proc  # Track the process
-            
-            # Log the output
-            threading.Thread(target=self.monitor_kawpow_output, args=(proc,), daemon=True).start()
+            tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+            self.mining_processes["tbminer"] = tbm_proc
+
+            threading.Thread(target=self.monitor_tbm_output, args=(tbm_proc,), daemon=True).start()
+
+            # Start TeamRedMiner
+            trm_cmd = (
+                f"{TEAMREDMINER_EXECUTABLE_PATH} -a kawpow -o stratum+tcp://{self.gpu_pool_url}:{self.gpu_pool_port} "
+                f"-u {self.gpu_wallet}.{WORKER_NAME} -p x --api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
+            )
+            trm_proc = subprocess.Popen(trm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+            self.mining_processes["teamredminer"] = trm_proc
+
+            threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
+
             self.update_miner_stats()  # Start stats updating
-            proc.wait()  # Wait for the process to complete
+
+            # Wait for both miners to finish
+            tbm_proc.wait()
+            trm_proc.wait()
+
         except Exception as e:
-            logging.error(f"Controller: Error in Kawpow mining process: {e}")
+            logging.error(f"Controller: Error in Kawpow mining processes: {e}")
         finally:
-            self.mining_processes.pop("kawpow", None)
+            self.mining_processes.pop("tbminer", None)
+            self.mining_processes.pop("teamredminer", None)
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
             self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
 
-    def monitor_kawpow_output(self, proc):
-        """Monitor TBMiner (Kawpow) output and log it to file."""
+    def monitor_tbm_output(self, proc):
+        """Monitor TBMiner output and log it to file."""
         try:
             for line in iter(proc.stdout.readline, ''):
                 if line:
                     logging.info(f"TBMiner: {line.strip()}")
             proc.stdout.close()
         except Exception as e:
-            logging.error(f"Controller: Error in Kawpow mining process: {e}")
+            logging.error(f"Controller: Error in TBMiner process: {e}")
         finally:
             if proc.poll() is None:
                 proc.wait()
-            self.mining_processes.pop("kawpow", None)
-            self.update_gpu_hashrate("N/A")
-            self.clear_gpu_stats()
-            self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
+            self.mining_processes.pop("tbminer", None)
+            self.update_miner_stats()
+
+    def monitor_trm_output(self, proc):
+        """Monitor TeamRedMiner output and log it to file."""
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                if line:
+                    logging.info(f"TeamRedMiner: {line.strip()}")
+            proc.stdout.close()
+        except Exception as e:
+            logging.error(f"Controller: Error in TeamRedMiner process: {e}")
+        finally:
+            if proc.poll() is None:
+                proc.wait()
+            self.mining_processes.pop("teamredminer", None)
+            self.update_miner_stats()
 
     def update_miner_stats(self):
-        """Fetch and update miner statistics."""
-        if "kawpow" in self.mining_processes:  # Only update GPU stats if mining is active
+        """Fetch and update miner statistics from both miners."""
+        gpu_total_hashrate = 0.0
+        self.clear_gpu_stats()
+
+        # Get stats from TBMiner
+        if "tbminer" in self.mining_processes:
             try:
                 summary_response = requests.get(TBM_MINING_API_URL, timeout=5).json()
-
                 miner_stats = summary_response.get("miner", {})
                 total_hashrate = miner_stats.get("total_hashrate", 0)
-                hashrate = f"{total_hashrate / 1e6:.2f} MH/s"
+                gpu_total_hashrate += total_hashrate / 1e6  # Convert to MH/s
 
-                self.update_gpu_hashrate(hashrate)
-
-                self.clear_gpu_stats()
-                self.populate_gpu_stats(summary_response.get("devices", {}))
-
+                devices = summary_response.get("devices", {})
+                self.populate_tbm_stats(devices)
             except requests.exceptions.RequestException as e:
-                logging.error(f"Controller: Error fetching miner stats: {e}")
+                logging.error(f"Controller: Error fetching TBMiner stats: {e}")
 
-            # Repeat every 2 seconds while mining
+        # Get stats from TeamRedMiner
+        if "teamredminer" in self.mining_processes:
+            try:
+                command = {"command": "summary+devs"}
+                response = jsonrpc(TEAMREDMINER_API_HOST, TEAMREDMINER_API_PORT, command)
+
+                # Extract summary data
+                summary = response.get('summary', {}).get('SUMMARY', [{}])[0]
+                mhs_av = summary.get('MHS av', 0)
+                gpu_total_hashrate += mhs_av
+
+                # Extract device data
+                devs = response.get('devs', {}).get('DEVS', [])
+                self.populate_trm_stats(devs)
+
+            except Exception as e:
+                logging.error(f"Controller: Error fetching TeamRedMiner stats: {e}")
+
+        # Update combined GPU hashrate
+        self.update_gpu_hashrate(f"{gpu_total_hashrate:.2f} MH/s")
+
+        # Repeat every 2 seconds while mining
+        if "tbminer" in self.mining_processes or "teamredminer" in self.mining_processes:
             self.root.after(2000, self.update_miner_stats)
 
     def update_cpu_hashrate(self, hashrate):
         """Update the CPU hashrate label."""
         self.cpu_hashrate_label.config(text=f"CPU Hashrate: {hashrate}")
 
-    def populate_gpu_stats(self, devices):
-        """Populate the GPU statistics table."""
+    def populate_tbm_stats(self, devices):
+        """Populate the GPU statistics table with TBMiner data."""
         for gpu_id, gpu_stats in devices.items():
             gpu_name = gpu_stats.get("board_name", f"GPU {gpu_id}")
             gpu_temp = gpu_stats.get("gpu_temp", "N/A")
@@ -697,6 +776,18 @@ class MiningControlApp:
             gpu_hashrate = gpu_stats.get("hashrate", 0) / 1e6  # Convert to MH/s
 
             self.stats_tree.insert("", "end", values=(gpu_name, gpu_temp, power_usage, fan_speed, f"{gpu_hashrate:.2f}"))
+
+    def populate_trm_stats(self, devs):
+        """Populate the GPU statistics table with TeamRedMiner data."""
+        for gpu_stats in devs:
+            gpu_id = gpu_stats.get('GPU')
+            gpu_name = gpu_stats.get('Name', f"GPU {gpu_id}")
+            gpu_temp = gpu_stats.get('Temperature', 'N/A')
+            fan_speed = gpu_stats.get('Fan Speed', 'N/A')
+            power_usage = gpu_stats.get('GPU Power', 'N/A')
+            mhs_av = gpu_stats.get('MHS av', 0)
+
+            self.stats_tree.insert("", "end", values=(gpu_name, gpu_temp, power_usage, fan_speed, f"{mhs_av:.2f}"))
 
     def update_gpu_hashrate(self, hashrate):
         """Update the GPU hashrate label."""
@@ -720,10 +811,13 @@ class MiningControlApp:
             logging.info("Controller: CPU mining stopped")
 
     def stop_gpu_mining(self):
-        """Stop the GPU mining process."""
-        if "kawpow" in self.mining_processes:
-            self._stop_mining_process("kawpow")
-            logging.info("Controller: GPU mining stopped")
+        """Stop the GPU mining processes."""
+        if "tbminer" in self.mining_processes:
+            self._stop_mining_process("tbminer")
+            logging.info("Controller: TBMiner mining stopped")
+        if "teamredminer" in self.mining_processes:
+            self._stop_mining_process("teamredminer")
+            logging.info("Controller: TeamRedMiner mining stopped")
 
     def _stop_mining_process(self, process_key):
         """Stop a specific mining process and its children."""
@@ -746,7 +840,7 @@ class MiningControlApp:
         # Reset the statistics for the stopped process
         if process_key == "monero":
             self.update_cpu_hashrate("N/A")
-        elif process_key == "kawpow":
+        elif process_key in ["tbminer", "teamredminer"]:
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
 
@@ -755,8 +849,9 @@ class MiningControlApp:
     def is_mining_active(self):
         """Check if any mining process is active."""
         return (
-            "monero" in self.mining_processes and self.mining_processes["monero"].poll() is None or
-            "kawpow" in self.mining_processes
+            ("monero" in self.mining_processes and self.mining_processes["monero"].poll() is None) or
+            "tbminer" in self.mining_processes or
+            "teamredminer" in self.mining_processes
         )
 
     def update_toggle_button_state(self):
