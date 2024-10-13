@@ -37,14 +37,14 @@ DEFAULT_CONFIG = {
     "GPU_POOL_PORT": 6060,
     "GPU_WALLET": "",
     "GPU_TYPE": "Nvidia+AMD",
-    "TBM_EXECUTABLE_PATH": r".\TBMiner.exe",
+    "GMINER_EXECUTABLE_PATH": r".\Gminer.exe",
     "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe"
 }
 
 # Static variables
 VERSION = "0.1.12-alpha"
 LOG_FILE = "amber-kawpow-miner.log"
-TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
+GMINER_MINING_API_URL = "http://127.0.0.1:4068/stat"
 TEAMREDMINER_API_HOST = '127.0.0.1'
 TEAMREDMINER_API_PORT = 4067
 EXECUTABLE_NAME = "amber-kawpow-miner.exe"
@@ -310,8 +310,8 @@ class MiningControlApp:
         )
         self.gpu_type_dropdown.pack(fill=X, padx=10, pady=5)
 
-        self.add_setting_field(gpu_frame, "TBMiner Executable Path:", self.config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
-        self.create_browse_tbm_button(gpu_frame)
+        self.add_setting_field(gpu_frame, "Gminer Executable Path:", self.config["GMINER_EXECUTABLE_PATH"], "gminer_path_entry")
+        self.create_browse_gminer_button(gpu_frame)
         self.add_setting_field(gpu_frame, "TeamRedMiner Executable Path:", self.config["TEAMREDMINER_EXECUTABLE_PATH"], "teamredminer_path_entry")
         self.create_browse_teamredminer_button(gpu_frame)
 
@@ -326,9 +326,9 @@ class MiningControlApp:
         entry.pack(fill=X, padx=10, pady=5)
         setattr(self, entry_var_name, entry)
 
-    def create_browse_tbm_button(self, window):
-        """Create a button for browsing the TBMiner executable."""
-        browse_button = ttk.Button(window, text="Browse...", command=self.browse_tbminer_path)
+    def create_browse_gminer_button(self, window):
+        """Create a button for browsing the Gminer executable."""
+        browse_button = ttk.Button(window, text="Browse...", command=self.browse_gminer_path)
         browse_button.pack(anchor=E, padx=10, pady=5)
 
     def create_browse_teamredminer_button(self, window):
@@ -346,12 +346,12 @@ class MiningControlApp:
         save_button = ttk.Button(window, text="Save", command=lambda: self.save_settings(window))
         save_button.pack(anchor=E, padx=10, pady=20)
 
-    def browse_tbminer_path(self):
-        """Open a file dialog to browse for the TBMiner executable."""
-        file_path = filedialog.askopenfilename(title="Select TBMiner Executable", filetypes=[("Executable Files", "*.exe")])
+    def browse_gminer_path(self):
+        """Open a file dialog to browse for the Gminer executable."""
+        file_path = filedialog.askopenfilename(title="Select Gminer Executable", filetypes=[("Executable Files", "*.exe")])
         if file_path:
-            self.tbminer_path_entry.delete(0, END)
-            self.tbminer_path_entry.insert(0, file_path)
+            self.gminer_path_entry.delete(0, END)
+            self.gminer_path_entry.insert(0, file_path)
 
     def browse_teamredminer_path(self):
         """Open a file dialog to browse for the TeamRedMiner executable."""
@@ -389,7 +389,7 @@ class MiningControlApp:
         self.config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
         self.config["GPU_WALLET"] = self.gpu_wallet_entry.get()
         self.config["GPU_TYPE"] = self.gpu_type_var.get()  # Save GPU Type
-        self.config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
+        self.config["GMINER_EXECUTABLE_PATH"] = self.gminer_path_entry.get()
         self.config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.get()
 
         # Save the updated configuration
@@ -518,17 +518,17 @@ class MiningControlApp:
             # Validate miners based on GPU_TYPE
             gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
             if gpu_type in ["Nvidia", "Nvidia+AMD"]:
-                # Validate TBMiner
+                # Validate Gminer
                 result = subprocess.run(
-                    [self.config["TBM_EXECUTABLE_PATH"], '--version'],
+                    [self.config["GMINER_EXECUTABLE_PATH"], '--version'],
                     capture_output=True,
                     text=True,
                     check=True
                 )
                 if "Miner version" in result.stdout:
-                    logging.info("Controller: TBMiner executable validated successfully.")
+                    logging.info("Controller: Gminer executable validated successfully.")
                 else:
-                    raise ValueError("Invalid TBMiner executable output.")
+                    raise ValueError("Invalid Gminer executable output.")
 
             if gpu_type in ["AMD", "Nvidia+AMD"]:
                 # Validate TeamRedMiner
@@ -633,20 +633,20 @@ class MiningControlApp:
         try:
             gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
             if gpu_type in ["Nvidia", "Nvidia+AMD"]:
-                # Start TBMiner
-                tbm_cmd = [
-                    self.config["TBM_EXECUTABLE_PATH"],
+                # Start Gminer
+                gminer_cmd = [
+                    self.config["GMINER_EXECUTABLE_PATH"],
                     "--algo", "kawpow",
-                    "--hostname", self.config["GPU_POOL_URL"],
+                    "--server", self.config["GPU_POOL_URL"],
                     "--port", str(self.config["GPU_POOL_PORT"]),
-                    "--wallet", self.config["GPU_WALLET"],
-                    "--worker-name", self.config["WORKER_NAME"],
-                    "--api"
+                    "--user", self.config["GPU_WALLET"],
+                    "--worker", self.config["WORKER_NAME"],
+                    "--api", "4068"
                 ]
-                tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                self.mining_processes["tbminer"] = tbm_proc
+                gminer_proc = subprocess.Popen(gminer_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                self.mining_processes["gminer"] = gminer_proc
 
-                threading.Thread(target=self.monitor_tbm_output, args=(tbm_proc,), daemon=True).start()
+                threading.Thread(target=self.monitor_gminer_output, args=(gminer_proc,), daemon=True).start()
 
             if gpu_type in ["AMD", "Nvidia+AMD"]:
                 # Start TeamRedMiner
@@ -666,34 +666,34 @@ class MiningControlApp:
             self.update_miner_stats()  # Start stats updating
 
             # Wait for miners to finish
-            if "tbminer" in self.mining_processes:
-                self.mining_processes["tbminer"].wait()
+            if "gminer" in self.mining_processes:
+                self.mining_processes["gminer"].wait()
             if "teamredminer" in self.mining_processes:
                 self.mining_processes["teamredminer"].wait()
 
         except Exception as e:
             logging.error(f"Controller: Error in GPU mining processes: {e}")
         finally:
-            self.mining_processes.pop("tbminer", None)
+            self.mining_processes.pop("gminer", None)
             self.mining_processes.pop("teamredminer", None)
             self.mining_processes.pop("gpu_mining", None)
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
             self.update_toggle_button_state()  # Ensure the button state is updated after the miner stops
 
-    def monitor_tbm_output(self, proc):
-        """Monitor TBMiner output and log it to file."""
+    def monitor_gminer_output(self, proc):
+        """Monitor Gminer output and log it to file."""
         try:
             for line in iter(proc.stdout.readline, ''):
                 if line:
-                    logging.info(f"TBMiner: {line.strip()}")
+                    logging.info(f"Gminer: {line.strip()}")
             proc.stdout.close()
         except Exception as e:
-            logging.error(f"Controller: Error in TBMiner process: {e}")
+            logging.error(f"Controller: Error in Gminer process: {e}")
         finally:
             if proc.poll() is None:
                 proc.wait()
-            self.mining_processes.pop("tbminer", None)
+            self.mining_processes.pop("gminer", None)
             self.update_miner_stats()
 
     def monitor_trm_output(self, proc):
@@ -723,18 +723,20 @@ class MiningControlApp:
         gpu_total_hashrate = 0.0
         self.clear_gpu_stats()
 
-        # Get stats from TBMiner
-        if "tbminer" in self.mining_processes:
+        if "gminer" in self.mining_processes:
             try:
-                summary_response = requests.get(TBM_MINING_API_URL, timeout=5).json()
-                miner_stats = summary_response.get("miner", {})
-                total_hashrate = miner_stats.get("total_hashrate", 0)
+                summary_response = requests.get(GMINER_MINING_API_URL, timeout=5).json()
+                
+                # Extract total hashrate information from each GPU
+                devices = summary_response.get("devices", [])
+                total_hashrate = sum(device.get("speed", 0) for device in devices)
                 gpu_total_hashrate += total_hashrate / 1e6  # Convert to MH/s
 
-                devices = summary_response.get("devices", {})
-                self.populate_tbm_stats(devices)
+                # Populate stats for each device
+                self.populate_gminer_stats(devices)
+                
             except requests.exceptions.RequestException as e:
-                logging.error(f"Controller: Error fetching TBMiner stats: {e}")
+                logging.error(f"Controller: Error fetching Gminer stats: {e}")
 
         # Get stats from TeamRedMiner
         if "teamredminer" in self.mining_processes:
@@ -758,21 +760,22 @@ class MiningControlApp:
         self.update_gpu_hashrate(f"{gpu_total_hashrate:.2f} MH/s")
 
         # Repeat every 2 seconds while mining
-        if "tbminer" in self.mining_processes or "teamredminer" in self.mining_processes:
+        if "gminer" in self.mining_processes or "teamredminer" in self.mining_processes:
             self.root.after(2000, self.update_miner_stats)
 
     def update_cpu_hashrate(self, hashrate):
         """Update the CPU hashrate label."""
         self.cpu_hashrate_label.config(text=f"CPU Hashrate: {hashrate}")
 
-    def populate_tbm_stats(self, devices):
-        """Populate the GPU statistics table with TBMiner data."""
-        for gpu_id, gpu_stats in devices.items():
-            gpu_name = gpu_stats.get("board_name", f"GPU {gpu_id}")
-            gpu_temp = gpu_stats.get("gpu_temp", "N/A")
-            power_usage = gpu_stats.get("watt", "N/A")
+    def populate_gminer_stats(self, devices):
+        """Populate the GPU statistics table with Gminer data."""
+        logging.error(devices)
+        for gpu_stats in devices:
+            gpu_name = gpu_stats.get("name", "Unknown")
+            gpu_temp = gpu_stats.get("temperature", "N/A")
+            power_usage = gpu_stats.get("power_usage", "N/A")
             fan_speed = gpu_stats.get("fan", "N/A")
-            gpu_hashrate = gpu_stats.get("hashrate", 0) / 1e6  # Convert to MH/s
+            gpu_hashrate = gpu_stats.get("speed", 0) / 1e6  # Convert to MH/s
 
             self.stats_tree.insert("", "end", values=(gpu_name, gpu_temp, power_usage, fan_speed, f"{gpu_hashrate:.2f}"))
 
@@ -811,9 +814,9 @@ class MiningControlApp:
 
     def stop_gpu_mining(self):
         """Stop the GPU mining processes."""
-        if "tbminer" in self.mining_processes:
-            self._stop_mining_process("tbminer")
-            logging.info("Controller: TBMiner mining stopped")
+        if "gminer" in self.mining_processes:
+            self._stop_mining_process("gminer")
+            logging.info("Controller: Gminer mining stopped")
         if "teamredminer" in self.mining_processes:
             self._stop_mining_process("teamredminer")
             logging.info("Controller: TeamRedMiner mining stopped")
@@ -839,7 +842,7 @@ class MiningControlApp:
         # Reset the statistics for the stopped process
         if process_key == "monero":
             self.update_cpu_hashrate("N/A")
-        elif process_key in ["tbminer", "teamredminer"]:
+        elif process_key in ["gminer", "teamredminer"]:
             self.update_gpu_hashrate("N/A")
             self.clear_gpu_stats()
 
@@ -849,7 +852,7 @@ class MiningControlApp:
         """Check if any mining process is active."""
         return any(
             proc_key in self.mining_processes and self.mining_processes[proc_key].poll() is None
-            for proc_key in ["monero", "tbminer", "teamredminer"]
+            for proc_key in ["monero", "gminer", "teamredminer"]
         )
 
     def update_toggle_button_state(self):
