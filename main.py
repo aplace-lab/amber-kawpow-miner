@@ -313,10 +313,10 @@ class MiningControlApp(QMainWindow):
         """Process log content to add HTML formatting for pills."""
         # Define the mapping of keywords to their styles
         keyword_styles = {
-            "Gminer": "background-color: green; color: white; padding: 2px 6px; border-radius: 10px;",
-            "TeamRedMiner": "background-color: red; color: white; padding: 2px 6px; border-radius: 10px;",
-            "XMRig": "background-color: blue; color: white; padding: 2px 6px; border-radius: 10px;",
-            "Controller": "background-color: gray; color: white; padding: 2px 6px; border-radius: 10px;"
+            "Gminer": "background-color: #4CAF50; color: #ffffff; padding: 4px 8px; border-radius: 12px; font-weight: bold;",
+            "TeamRedMiner": "background-color: #f44336; color: #ffffff; padding: 4px 8px; border-radius: 12px; font-weight: bold;",
+            "XMRig": "background-color: #2196F3; color: #ffffff; padding: 4px 8px; border-radius: 12px; font-weight: bold;",
+            "Controller": "background-color: #9E9E9E; color: #ffffff; padding: 4px 8px; border-radius: 12px; font-weight: bold;"
         }
 
         # Escape HTML characters to prevent rendering issues
@@ -325,9 +325,14 @@ class MiningControlApp(QMainWindow):
         # Replace keywords with styled HTML spans
         for keyword, style in keyword_styles.items():
             # Use a regex pattern to match whole words only
-            pattern = r'\b{}\b'.format(re.escape(keyword))
+            pattern = r'\b{}\b:'.format(re.escape(keyword))
             replacement = f'<span style="{style}">{keyword}</span>'
             log_content = re.sub(pattern, replacement, log_content)
+
+        # Highlight log levels
+        log_content = re.sub(r'\bERROR\b', '<span style="color: red; font-weight: bold;">ERROR</span>', log_content)
+        log_content = re.sub(r'\bWARNING\b', '<span style="color: orange; font-weight: bold;">WARNING</span>', log_content)
+        log_content = re.sub(r'\bINFO\b', '<span style="color: green; font-weight: bold;">INFO</span>', log_content)
 
         # Wrap the content in <pre> to preserve formatting
         html_content = f'<pre style="font-family: monospace;">{log_content}</pre>'
