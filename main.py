@@ -348,7 +348,7 @@ class MiningControlApp(QMainWindow):
         """Open the settings dialog."""
         settings_dialog = QDialog(self)
         settings_dialog.setWindowTitle("Settings")
-        settings_dialog.setGeometry(100, 100, 500, 600)
+        settings_dialog.setGeometry(100, 100, 500, 300)
 
         layout = QVBoxLayout()
         settings_dialog.setLayout(layout)
