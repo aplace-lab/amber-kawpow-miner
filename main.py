@@ -944,16 +944,20 @@ class MiningControlApp(QMainWindow):
         """Update the toggle button state based on mining activity."""
         if self.is_mining_active():
             self.toggle_btn.setText("Stop Mining")
+            self.toggle_btn.setStyleSheet("background-color: red; color: white;")
         else:
             if self.auto_control.isChecked():
                 if self.last_fetched_price is not None and (
                     self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"]
                 ):
                     self.toggle_btn.setText("Price too high")
+                    self.toggle_btn.setStyleSheet("background-color: yellow; color: black;")
                 elif self.config.get("ENABLE_IDLE_MINING", False) and self.get_idle_time() < int(self.config["IDLE_TIME_THRESHOLD"]):
                     self.toggle_btn.setText("Waiting on idle")
+                    self.toggle_btn.setStyleSheet("background-color: orange; color: white;")
             else:
                 self.toggle_btn.setText("Manual Start")
+                self.toggle_btn.setStyleSheet("background-color: green; color: white;")
 
     def get_idle_time(self):
         """Get the system idle time in seconds."""
