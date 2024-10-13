@@ -525,7 +525,7 @@ class MiningControlApp:
                     text=True,
                     check=True
                 )
-                if "Miner version" in result.stdout:
+                if "GMiner" in result.stdout:
                     logging.info("Controller: Gminer executable validated successfully.")
                 else:
                     raise ValueError("Invalid Gminer executable output.")
