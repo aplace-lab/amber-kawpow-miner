@@ -16,11 +16,11 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QCheckBox, QTreeWidget, QTreeWidgetItem,
     QDialog, QLineEdit, QFileDialog, QMessageBox, QTabWidget,
-    QFormLayout, QGroupBox, QTextEdit, QMenu, QMenuBar, QComboBox,
-    QStatusBar, QToolBar
+    QFormLayout, QGroupBox, QTextEdit, QComboBox,
+    QStatusBar
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot, QSize
-from PyQt6.QtGui import QIcon, QAction, QTextCursor, QFont, QPalette, QColor
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot, QSize, QObject
+from PyQt6.QtGui import QIcon, QAction, QTextCursor, QPalette, QColor
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -79,7 +79,91 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+class MinerStatsWorker(QObject):
+    # Signals to emit the fetched data
+    stats_fetched = pyqtSignal(float, list)
+
+    def __init__(self, mining_processes):
+        super().__init__()
+        self.mining_processes = mining_processes
+        self._running = True
+
+    def stop(self):
+        self._running = False
+
+    def jsonrpc(self, ip, port, command):
+        """JSON-RPC helper function for TeamRedMiner."""
+        with socket.create_connection((ip, port)) as s:
+            s.sendall(json.dumps(command).encode())
+            response = b"".join(iter(lambda: s.recv(4096), b""))
+        return json.loads(response.decode().replace('\x00', ''))
+
+    @pyqtSlot()
+    def run(self):
+        while self._running:
+            gpu_total_hashrate = 0.0
+            devices_stats = []
+
+            if "gminer" in self.mining_processes:
+                try:
+                    summary_response = requests.get(GMINER_MINING_API_URL, timeout=5).json()
+
+                    # Extract total hashrate information from each GPU
+                    devices = summary_response.get("devices", [])
+                    total_hashrate = sum(device.get("speed", 0) for device in devices)
+                    gpu_total_hashrate += total_hashrate / 1e6  # Convert to MH/s
+
+                    devices_stats.extend([
+                        {
+                            'name': device.get("name", "Unknown"),
+                            'temperature': str(device.get("temperature", "N/A")),
+                            'power_usage': str(device.get("power_usage", "N/A")),
+                            'fan_speed': str(device.get("fan", "N/A")),
+                            'hashrate': device.get("speed", 0) / 1e6  # Convert to MH/s
+                        }
+                        for device in devices
+                    ])
+
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Controller: Error fetching Gminer stats: {e}")
+
+            if "teamredminer" in self.mining_processes:
+                try:
+                    command = {"command": "summary+devs"}
+                    response = self.jsonrpc(TEAMREDMINER_API_HOST, TEAMREDMINER_API_PORT, command)
+
+                    # Extract summary data
+                    summary = response.get('summary', {}).get('SUMMARY', [{}])[0]
+                    mhs_av = summary.get('MHS av', 0)
+                    gpu_total_hashrate += mhs_av
+
+                    # Extract device data
+                    devs = response.get('devs', {}).get('DEVS', [])
+                    devices_stats.extend([
+                        {
+                            'name': dev.get('Name', f"GPU {dev.get('GPU')}"),
+                            'temperature': str(dev.get('Temperature', 'N/A')),
+                            'power_usage': str(dev.get('GPU Power', 'N/A')),
+                            'fan_speed': str(dev.get('Fan Speed', 'N/A')),
+                            'hashrate': dev.get('MHS av', 0)
+                        }
+                        for dev in devs
+                    ])
+
+                except Exception as e:
+                    logging.error(f"Controller: Error fetching TeamRedMiner stats: {e}")
+
+            # Emit the fetched data
+            self.stats_fetched.emit(gpu_total_hashrate, devices_stats)
+            QThread.sleep(2)  # Sleep for 2 seconds before next fetch
+
 class MiningControlApp(QMainWindow):
+    # Define custom signals
+    update_gpu_hashrate_signal = pyqtSignal(str)
+    clear_gpu_stats_signal = pyqtSignal()
+    update_toggle_button_state_signal = pyqtSignal()
+    update_cpu_hashrate_signal = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         logging.info("Controller: Application starting")
@@ -104,6 +188,16 @@ class MiningControlApp(QMainWindow):
         self.update_price()
         self.validate_miner_executables()
         logging.info("Controller: Application finished loading")
+
+        # Miner stats worker and thread
+        self.miner_stats_worker = None
+        self.miner_stats_thread = None
+
+        # Connect signals to slots
+        self.update_gpu_hashrate_signal.connect(self.update_gpu_hashrate)
+        self.update_cpu_hashrate_signal.connect(self.update_cpu_hashrate)
+        self.clear_gpu_stats_signal.connect(self.clear_gpu_stats)
+        self.update_toggle_button_state_signal.connect(self.update_toggle_button_state)
 
     def load_config(self):
         """Load configuration from the config file, merging with defaults."""
@@ -337,7 +431,7 @@ class MiningControlApp(QMainWindow):
         # Wrap the content in <pre> to preserve formatting
         html_content = f'<pre style="font-family: monospace;">{log_content}</pre>'
         return html_content
-    
+
     def open_about(self):
         """Open the about dialog."""
         QMessageBox.information(
@@ -701,15 +795,15 @@ class MiningControlApp(QMainWindow):
             if proc.poll() is None:
                 proc.wait()
             self.mining_processes.pop("monero", None)
-            self.update_cpu_hashrate("N/A")
-            self.update_toggle_button_state()
+            self.update_cpu_hashrate_signal.emit("N/A")
+            self.update_toggle_button_state_signal.emit()
 
     def update_monero_hashrate(self, output_line):
         """Update the Monero hashrate."""
         parts = output_line.split()
         if len(parts) >= 6:
             hashrate = f"{parts[5]} H/s"
-            self.update_cpu_hashrate(hashrate)
+            self.update_cpu_hashrate_signal.emit(hashrate)
 
     def start_gpu_mining(self):
         """Start the GPU mining processes."""
@@ -717,6 +811,8 @@ class MiningControlApp(QMainWindow):
             self.mining_processes["gpu_mining"] = threading.Thread(target=self.run_gpu_mining)
             self.mining_processes["gpu_mining"].start()
             logging.info("Controller: GPU mining started")
+            # Start the miner stats worker
+            self.start_miner_stats_worker()
 
     def run_gpu_mining(self):
         """Run the GPU mining processes."""
@@ -756,8 +852,6 @@ class MiningControlApp(QMainWindow):
 
                 threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
 
-            self.update_miner_stats()
-
             if "gminer" in self.mining_processes:
                 self.mining_processes["gminer"].wait()
             if "teamredminer" in self.mining_processes:
@@ -769,9 +863,12 @@ class MiningControlApp(QMainWindow):
             self.mining_processes.pop("gminer", None)
             self.mining_processes.pop("teamredminer", None)
             self.mining_processes.pop("gpu_mining", None)
-            self.update_gpu_hashrate("N/A")
-            self.clear_gpu_stats()
-            self.update_toggle_button_state()
+            # Emit signals instead of calling methods directly
+            self.update_gpu_hashrate_signal.emit("N/A")
+            self.clear_gpu_stats_signal.emit()
+            self.update_toggle_button_state_signal.emit()
+            # Stop the miner stats worker
+            self.stop_miner_stats_worker()
 
     def monitor_gminer_output(self, proc):
         """Monitor Gminer output."""
@@ -786,7 +883,6 @@ class MiningControlApp(QMainWindow):
             if proc.poll() is None:
                 proc.wait()
             self.mining_processes.pop("gminer", None)
-            self.update_miner_stats()
 
     def monitor_trm_output(self, proc):
         """Monitor TeamRedMiner output."""
@@ -801,96 +897,76 @@ class MiningControlApp(QMainWindow):
             if proc.poll() is None:
                 proc.wait()
             self.mining_processes.pop("teamredminer", None)
-            self.update_miner_stats()
 
-    def jsonrpc(self, ip, port, command):
-        """JSON-RPC helper function for TeamRedMiner."""
-        with socket.create_connection((ip, port)) as s:
-            s.sendall(json.dumps(command).encode())
-            response = b"".join(iter(lambda: s.recv(4096), b""))
-        return json.loads(response.decode().replace('\x00', ''))
+    def start_miner_stats_worker(self):
+        """Start the miner stats worker thread."""
+        if self.miner_stats_worker is None:
+            self.miner_stats_worker = MinerStatsWorker(self.mining_processes)
+            self.miner_stats_thread = QThread()
+            self.miner_stats_worker.moveToThread(self.miner_stats_thread)
+            self.miner_stats_thread.started.connect(self.miner_stats_worker.run)
+            self.miner_stats_worker.stats_fetched.connect(self.update_miner_stats)
+            self.miner_stats_thread.start()
 
-    def update_miner_stats(self):
-        """Fetch and update miner statistics."""
-        gpu_total_hashrate = 0.0
-        self.clear_gpu_stats()
+    def stop_miner_stats_worker(self):
+        """Stop the miner stats worker thread."""
+        if self.miner_stats_worker is not None:
+            self.miner_stats_worker.stop()
+            self.miner_stats_thread.quit()
+            self.miner_stats_thread.wait()
+            self.miner_stats_worker = None
+            self.miner_stats_thread = None
 
-        if "gminer" in self.mining_processes:
-            try:
-                summary_response = requests.get(GMINER_MINING_API_URL, timeout=5).json()
+    @pyqtSlot(float, list)
+    def update_miner_stats(self, gpu_total_hashrate, devices_stats):
+        """Update the GUI with fetched miner statistics."""
+        self.update_gpu_hashrate_signal.emit(f"{gpu_total_hashrate:.2f} MH/s")
+        self.stats_tree.clear()
 
-                # Extract total hashrate information from each GPU
-                devices = summary_response.get("devices", [])
-                total_hashrate = sum(device.get("speed", 0) for device in devices)
-                gpu_total_hashrate += total_hashrate / 1e6  # Convert to MH/s
+        for device in devices_stats:
+            item = QTreeWidgetItem([
+                device['name'],
+                device['temperature'],
+                device['power_usage'],
+                device['fan_speed'],
+                f"{device['hashrate']:.2f}"
+            ])
+            self.stats_tree.addTopLevelItem(item)
 
-                # Populate stats for each device
-                self.populate_gminer_stats(devices)
-
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Controller: Error fetching Gminer stats: {e}")
-
-        # Get stats from TeamRedMiner
-        if "teamredminer" in self.mining_processes:
-            try:
-                command = {"command": "summary+devs"}
-                response = self.jsonrpc(TEAMREDMINER_API_HOST, TEAMREDMINER_API_PORT, command)
-
-                # Extract summary data
-                summary = response.get('summary', {}).get('SUMMARY', [{}])[0]
-                mhs_av = summary.get('MHS av', 0)
-                gpu_total_hashrate += mhs_av
-
-                # Extract device data
-                devs = response.get('devs', {}).get('DEVS', [])
-                self.populate_trm_stats(devs)
-
-            except Exception as e:
-                logging.error(f"Controller: Error fetching TeamRedMiner stats: {e}")
-
-        # Update combined GPU hashrate
-        self.update_gpu_hashrate(f"{gpu_total_hashrate:.2f} MH/s")
-
-        # Repeat every 2 seconds while mining
-        if "gminer" in self.mining_processes or "teamredminer" in self.mining_processes:
-            QTimer.singleShot(2000, self.update_miner_stats)
-
+    @pyqtSlot(str)
     def update_cpu_hashrate(self, hashrate):
         """Update the CPU hashrate label."""
         self.cpu_hashrate_label.setText(f"CPU Hashrate: {hashrate}")
 
-    def populate_gminer_stats(self, devices):
-        """Populate the GPU statistics table with Gminer data."""
-        for gpu_stats in devices:
-            gpu_name = gpu_stats.get("name", "Unknown")
-            gpu_temp = str(gpu_stats.get("temperature", "N/A"))
-            power_usage = str(gpu_stats.get("power_usage", "N/A"))
-            fan_speed = str(gpu_stats.get("fan", "N/A"))
-            gpu_hashrate = gpu_stats.get("speed", 0) / 1e6  # Convert to MH/s
-
-            item = QTreeWidgetItem([gpu_name, gpu_temp, power_usage, fan_speed, f"{gpu_hashrate:.2f}"])
-            self.stats_tree.addTopLevelItem(item)
-
-    def populate_trm_stats(self, devs):
-        """Populate the GPU statistics table with TeamRedMiner data."""
-        for gpu_stats in devs:
-            gpu_id = gpu_stats.get('GPU')
-            gpu_name = gpu_stats.get('Name', f"GPU {gpu_id}")
-            gpu_temp = str(gpu_stats.get('Temperature', 'N/A'))
-            fan_speed = str(gpu_stats.get('Fan Speed', 'N/A'))
-            power_usage = str(gpu_stats.get('GPU Power', 'N/A'))
-            mhs_av = gpu_stats.get('MHS av', 0)
-
-            item = QTreeWidgetItem([gpu_name, gpu_temp, power_usage, fan_speed, f"{mhs_av:.2f}"])
-            self.stats_tree.addTopLevelItem(item)
-
+    @pyqtSlot(str)
     def update_gpu_hashrate(self, hashrate):
         """Update the GPU hashrate label."""
         self.gpu_hashrate_label.setText(f"GPU Hashrate: {hashrate}")
 
+    @pyqtSlot()
     def clear_gpu_stats(self):
         """Clear the GPU statistics table."""
         self.stats_tree.clear()
+
+    @pyqtSlot()
+    def update_toggle_button_state(self):
+        """Update the toggle button state based on mining activity."""
+        if self.is_mining_active():
+            self.toggle_btn.setText("Stop Mining")
+            self.toggle_btn.setStyleSheet("background-color: red; color: white;")
+        else:
+            if self.auto_control.isChecked():
+                if self.last_fetched_price is not None and (
+                    self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"]
+                ):
+                    self.toggle_btn.setText("Price too high")
+                    self.toggle_btn.setStyleSheet("background-color: yellow; color: black;")
+                elif self.config.get("ENABLE_IDLE_MINING", False) and self.get_idle_time() < int(self.config["IDLE_TIME_THRESHOLD"]):
+                    self.toggle_btn.setText("Waiting on idle")
+                    self.toggle_btn.setStyleSheet("background-color: orange; color: white;")
+            else:
+                self.toggle_btn.setText("Manual Start")
+                self.toggle_btn.setStyleSheet("background-color: green; color: white;")
 
     def stop_mining(self):
         """Stop both GPU and CPU mining processes."""
@@ -912,6 +988,8 @@ class MiningControlApp(QMainWindow):
         if "teamredminer" in self.mining_processes:
             self._stop_mining_process("teamredminer")
             logging.info("Controller: TeamRedMiner mining stopped")
+        if not any(k in self.mining_processes for k in ["gminer", "teamredminer"]):
+            self.stop_miner_stats_worker()
 
     def _stop_mining_process(self, process_key):
         """Stop a specific mining process."""
@@ -931,12 +1009,12 @@ class MiningControlApp(QMainWindow):
         self.mining_processes.pop(process_key, None)
 
         if process_key == "monero":
-            self.update_cpu_hashrate("N/A")
+            self.update_cpu_hashrate_signal.emit("N/A")
         elif process_key in ["gminer", "teamredminer"]:
-            self.update_gpu_hashrate("N/A")
-            self.clear_gpu_stats()
+            self.update_gpu_hashrate_signal.emit("N/A")
+            self.clear_gpu_stats_signal.emit()
 
-        self.update_toggle_button_state()
+        self.update_toggle_button_state_signal.emit()
 
     def is_mining_active(self):
         """Check if any mining process is active."""
@@ -945,33 +1023,18 @@ class MiningControlApp(QMainWindow):
             for proc_key in ["monero", "gminer", "teamredminer"]
         )
 
-    def update_toggle_button_state(self):
-        """Update the toggle button state based on mining activity."""
-        if self.is_mining_active():
-            self.toggle_btn.setText("Stop Mining")
-            self.toggle_btn.setStyleSheet("background-color: red; color: white;")
-        else:
-            if self.auto_control.isChecked():
-                if self.last_fetched_price is not None and (
-                    self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"]
-                ):
-                    self.toggle_btn.setText("Price too high")
-                    self.toggle_btn.setStyleSheet("background-color: yellow; color: black;")
-                elif self.config.get("ENABLE_IDLE_MINING", False) and self.get_idle_time() < int(self.config["IDLE_TIME_THRESHOLD"]):
-                    self.toggle_btn.setText("Waiting on idle")
-                    self.toggle_btn.setStyleSheet("background-color: orange; color: white;")
-            else:
-                self.toggle_btn.setText("Manual Start")
-                self.toggle_btn.setStyleSheet("background-color: green; color: white;")
-
     def get_idle_time(self):
         """Get the system idle time in seconds."""
-        import win32api  # Moved import here to prevent issues on non-Windows systems
-        return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
+        try:
+            import win32api
+            return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
+        except ImportError:
+            return 0  # On non-Windows systems, return 0
 
     def closeEvent(self, event):
         """Handle the window close event."""
         self.stop_mining()
+        self.stop_miner_stats_worker()
         event.accept()
 
 def main():
