@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
 }
 
 # Static variables
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 LOG_FILE = "amber-kawpow-miner.log"
 GMINER_MINING_API_URL = "http://127.0.0.1:4068/stat"
 TEAMREDMINER_API_HOST = '127.0.0.1'
@@ -533,14 +533,15 @@ class MiningControlApp:
             if gpu_type in ["AMD", "Nvidia+AMD"]:
                 # Validate TeamRedMiner
                 result = subprocess.run(
-                    [self.config["TEAMREDMINER_EXECUTABLE_PATH"], '--version'],
+                    [self.config["TEAMREDMINER_EXECUTABLE_PATH"], '--help'],
                     capture_output=True,
                     text=True,
                     check=True
                 )
-                if "Team Red Miner version" in result.stdout or "TeamRedMiner" in result.stdout:
+                if "Team Red Miner" in result.stdout:
                     logging.info("Controller: TeamRedMiner executable validated successfully.")
                 else:
+                    logging.info(result.stdout)
                     raise ValueError("Invalid TeamRedMiner executable output.")
 
             # Validate XMRig
