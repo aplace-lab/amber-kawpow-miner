@@ -1,6 +1,6 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-from tkinter import messagebox, Toplevel, filedialog
+from tkinter import messagebox, Toplevel, filedialog, END, BOTH, X, W, E, TOP
 import requests
 import subprocess
 import threading
@@ -41,41 +41,8 @@ DEFAULT_CONFIG = {
     "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe"
 }
 
-# Load or initialize configuration
-def load_config():
-    """Load configuration from the config file, or use defaults if the file doesn't exist."""
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    else:
-        return DEFAULT_CONFIG
-
-config = load_config()
-
-# Assign global variables
-# General settings
-CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
-GPU_PRICE_THRESHOLD = float(config["GPU_PRICE_THRESHOLD"])
-AMBER_API_SITE_ID = config["AMBER_API_SITE_ID"]
-AMBER_API_KEY = config["AMBER_API_KEY"]
-WORKER_NAME = config["WORKER_NAME"]
-
-# CPU Mining settings
-CPU_POOL_URL = config["CPU_POOL_URL"]
-CPU_POOL_PORT = int(config["CPU_POOL_PORT"])
-CPU_WALLET = config["CPU_WALLET"]
-XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
-
-# GPU Mining settings
-GPU_POOL_URL = config["GPU_POOL_URL"]
-GPU_POOL_PORT = int(config["GPU_POOL_PORT"])
-GPU_WALLET = config["GPU_WALLET"]
-GPU_TYPE = config.get("GPU_TYPE", "Nvidia+AMD")
-TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
-TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
-
 # Static variables
-VERSION = "0.1.11"
+VERSION = "0.1.12-alpha"
 LOG_FILE = "amber-kawpow-miner.log"
 TBM_MINING_API_URL = "http://127.0.0.1:4068/summary"
 TEAMREDMINER_API_HOST = '127.0.0.1'
@@ -84,66 +51,25 @@ EXECUTABLE_NAME = "amber-kawpow-miner.exe"
 GITHUB_REPO = "aplace-lab/amber-kawpow-miner"
 
 # Configure logging
-# 1 MB logs, keep 1 backup
-log_handler = RotatingFileHandler( 
-    LOG_FILE, 
-    maxBytes=1*1024*1024, 
+log_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=1 * 1024 * 1024,
     backupCount=2
-) 
+)
 logging.basicConfig(
-    handlers=[log_handler], 
+    handlers=[log_handler],
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# Variable to store the last fetched electricity price
-last_fetched_price = None
-
-def save_config():
-    """Save the current configuration to a file."""
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
-    logging.info("Controller: Preferences saved")
-
-def get_api_url():
-    """Construct the Amber API URL based on the site ID and API key."""
-    if AMBER_API_SITE_ID and AMBER_API_KEY:
-        return f"https://api.amber.com.au/v1/sites/{AMBER_API_SITE_ID}/prices/current?next=0&previous=0"
-    return None
-
-def check_for_updates():
-    """Check if the current version is the latest release on GitHub."""
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller."""
     try:
-        response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-        latest_release = response.json()["tag_name"]
-        asset = next(asset for asset in response.json()["assets"] if asset["name"] == EXECUTABLE_NAME)
-
-        if latest_release > VERSION:
-            download_url = asset["browser_download_url"]
-            prompt_update(latest_release, download_url)
-        else:
-            logging.info("Controller: Application already at latest version")
-
-    except Exception as e:
-        logging.error(f"Controller: Error checking for updates: {e}")
-
-def prompt_update(latest_release, download_url):
-    """Prompt the user to update to the latest version and download the new executable."""
-    message = f"A new version ({latest_release}) is available. Would you like to download now?"
-    response = messagebox.askokcancel("Update Available", message)
-    
-    if response:
-        webbrowser.open(download_url)
-
-def get_idle_time():
-    """Get the system idle time in seconds."""
-    return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
-
-def jsonrpc(ip, port, command):
-    with socket.create_connection((ip, port)) as s:
-        s.sendall(json.dumps(command).encode())
-        response = b"".join(iter(lambda: s.recv(4096), b""))
-    return json.loads(response.decode().replace('\x00', ''))
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class MiningControlApp:
     def __init__(self, root):
@@ -153,7 +79,9 @@ class MiningControlApp:
         self.root.geometry("650x500")
         self.root.resizable(False, False)
 
+        self.config = self.load_config()
         self.mining_processes = {}  # To keep track of subprocesses
+        self.last_fetched_price = None
 
         self.create_menu()          # Create the menu bar
         self.create_main_frame()
@@ -161,13 +89,31 @@ class MiningControlApp:
         self.create_control_section()
         self.create_stats_section()
 
-        self.reload_config()        # Reload config to ensure all attributes are set
-        check_for_updates()         # Check for updates
+        self.check_for_updates()    # Check for updates
         self.monitor_conditions()   # Start monitoring idle time and price thresholds
         self.update_price()         # Start fetching the electricity price every 5 minutes
         logging.info("Controller: Application finished loading")
 
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing) # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)  # Handle window close event
+
+    def load_config(self):
+        """Load configuration from the config file, merging with defaults."""
+        config = DEFAULT_CONFIG.copy()
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r") as f:
+                user_config = json.load(f)
+                config.update(user_config)
+        else:
+            # Save default config if config file doesn't exist
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=4)
+        return config
+
+    def save_config(self):
+        """Save the current configuration to a file."""
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(self.config, f, indent=4)
+        logging.info("Controller: Preferences saved")
 
     def create_menu(self):
         """Create a custom menu bar using a Frame."""
@@ -183,7 +129,7 @@ class MiningControlApp:
         file_menu.add_command(label="Exit", command=self.on_closing)
 
         file_menu_button.config(menu=file_menu)
-        file_menu_button.pack(side=LEFT)
+        file_menu_button.pack(side='left')
 
     def view_logs(self):
         """Open the log file in a simple text viewer with auto scroll functionality."""
@@ -301,8 +247,8 @@ class MiningControlApp:
         information_frame = ttk.Labelframe(settings_window, text="Information", padding=(10, 10))
         information_frame.pack(fill=X, pady=(0, 10))
 
-        self.price_label = ttk.Label(information_frame, text=f"Version: {VERSION}", font="-size 10")
-        self.price_label.pack(anchor=W)
+        about_label = ttk.Label(information_frame, text=f"Version: {VERSION}", font="-size 10")
+        about_label.pack(anchor=W)
 
     def open_settings(self):
         """Open the settings window."""
@@ -325,16 +271,16 @@ class MiningControlApp:
         notebook.add(gpu_frame, text="GPU")
 
         # General settings
-        self.add_setting_field(general_frame, "Amber Site ID:", config["AMBER_API_SITE_ID"], "amber_site_id_entry")
-        self.add_setting_field(general_frame, "Amber API Key:", config["AMBER_API_KEY"], "amber_api_key_entry")
-        self.add_setting_field(general_frame, "Worker Name:", config["WORKER_NAME"], "worker_name_entry")
-        self.add_setting_field(general_frame, "CPU Electricity Cost Threshold ($/kWh):", config["CPU_PRICE_THRESHOLD"], "cpu_price_threshold_entry")
-        self.add_setting_field(general_frame, "GPU Electricity Cost Threshold ($/kWh):", config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
-        self.add_setting_field(general_frame, "Idle Time Threshold (seconds):", config["IDLE_TIME_THRESHOLD"], "idle_time_threshold_entry")
+        self.add_setting_field(general_frame, "Amber Site ID:", self.config["AMBER_API_SITE_ID"], "amber_site_id_entry")
+        self.add_setting_field(general_frame, "Amber API Key:", self.config["AMBER_API_KEY"], "amber_api_key_entry")
+        self.add_setting_field(general_frame, "Worker Name:", self.config["WORKER_NAME"], "worker_name_entry")
+        self.add_setting_field(general_frame, "CPU Electricity Cost Threshold ($/kWh):", self.config["CPU_PRICE_THRESHOLD"], "cpu_price_threshold_entry")
+        self.add_setting_field(general_frame, "GPU Electricity Cost Threshold ($/kWh):", self.config["GPU_PRICE_THRESHOLD"], "gpu_price_threshold_entry")
+        self.add_setting_field(general_frame, "Idle Time Threshold (seconds):", self.config["IDLE_TIME_THRESHOLD"], "idle_time_threshold_entry")
 
-        self.enable_idle_mining_var = ttk.IntVar(value=config.get("ENABLE_IDLE_MINING", 0))
+        self.enable_idle_mining_var = ttk.IntVar(value=int(self.config.get("ENABLE_IDLE_MINING", 0)))
         self.enable_idle_mining = ttk.Checkbutton(
-            general_frame, 
+            general_frame,
             text="Enable Idle Mining",
             variable=self.enable_idle_mining_var,
             bootstyle="round-toggle"
@@ -342,20 +288,20 @@ class MiningControlApp:
         self.enable_idle_mining.pack(anchor=W, pady=(10, 0))
 
         # CPU Mining settings
-        self.add_setting_field(cpu_frame, "Pool URL:", config.get("CPU_POOL_URL", config["CPU_POOL_URL"]), "cpu_pool_url_entry")
-        self.add_setting_field(cpu_frame, "Pool Port:", str(config.get("CPU_POOL_PORT", config["CPU_POOL_PORT"])), "cpu_pool_port_entry")
-        self.add_setting_field(cpu_frame, "Wallet:", config.get("CPU_WALLET", ""), "cpu_wallet_entry")
-        self.add_setting_field(cpu_frame, "XMRig Executable Path:", config["XMRIG_EXECUTABLE_PATH"], "xmrig_path_entry")
+        self.add_setting_field(cpu_frame, "Pool URL:", self.config.get("CPU_POOL_URL", ""), "cpu_pool_url_entry")
+        self.add_setting_field(cpu_frame, "Pool Port:", str(self.config.get("CPU_POOL_PORT", "")), "cpu_pool_port_entry")
+        self.add_setting_field(cpu_frame, "Wallet:", self.config.get("CPU_WALLET", ""), "cpu_wallet_entry")
+        self.add_setting_field(cpu_frame, "XMRig Executable Path:", self.config["XMRIG_EXECUTABLE_PATH"], "xmrig_path_entry")
         self.create_browse_xmr_button(cpu_frame)
 
         # GPU Mining settings
-        self.add_setting_field(gpu_frame, "Pool URL:", config.get("GPU_POOL_URL", config["GPU_POOL_URL"]), "gpu_pool_url_entry")
-        self.add_setting_field(gpu_frame, "Pool Port:", str(config.get("GPU_POOL_PORT", config["GPU_POOL_PORT"])), "gpu_pool_port_entry")
-        self.add_setting_field(gpu_frame, "Wallet:", config.get("GPU_WALLET", ""), "gpu_wallet_entry")
+        self.add_setting_field(gpu_frame, "Pool URL:", self.config.get("GPU_POOL_URL", ""), "gpu_pool_url_entry")
+        self.add_setting_field(gpu_frame, "Pool Port:", str(self.config.get("GPU_POOL_PORT", "")), "gpu_pool_port_entry")
+        self.add_setting_field(gpu_frame, "Wallet:", self.config.get("GPU_WALLET", ""), "gpu_wallet_entry")
 
         # GPU Type dropdown
         ttk.Label(gpu_frame, text="GPU Type:").pack(anchor=W, padx=10, pady=5)
-        self.gpu_type_var = ttk.StringVar(value=config.get("GPU_TYPE", "Nvidia+AMD"))
+        self.gpu_type_var = ttk.StringVar(value=self.config.get("GPU_TYPE", "Nvidia+AMD"))
         self.gpu_type_dropdown = ttk.Combobox(
             gpu_frame,
             textvariable=self.gpu_type_var,
@@ -364,10 +310,10 @@ class MiningControlApp:
         )
         self.gpu_type_dropdown.pack(fill=X, padx=10, pady=5)
 
-        self.add_setting_field(gpu_frame, "TBMiner Executable Path:", config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
+        self.add_setting_field(gpu_frame, "TBMiner Executable Path:", self.config["TBM_EXECUTABLE_PATH"], "tbminer_path_entry")
         self.create_browse_tbm_button(gpu_frame)
-        self.add_setting_field(gpu_frame, "TeamRedMiner Executable Path:", config["TEAMREDMINER_EXECUTABLE_PATH"], "teamredminer_path_entry")
-        self.create_browse_trm_button(gpu_frame)
+        self.add_setting_field(gpu_frame, "TeamRedMiner Executable Path:", self.config["TEAMREDMINER_EXECUTABLE_PATH"], "teamredminer_path_entry")
+        self.create_browse_teamredminer_button(gpu_frame)
 
         # Save button
         self.create_save_button(settings_window)
@@ -385,9 +331,9 @@ class MiningControlApp:
         browse_button = ttk.Button(window, text="Browse...", command=self.browse_tbminer_path)
         browse_button.pack(anchor=E, padx=10, pady=5)
 
-    def create_browse_trm_button(self, window):
+    def create_browse_teamredminer_button(self, window):
         """Create a button for browsing the TeamRedMiner executable."""
-        browse_button = ttk.Button(window, text="Browse...", command=self.browse_trm_path)
+        browse_button = ttk.Button(window, text="Browse...", command=self.browse_teamredminer_path)
         browse_button.pack(anchor=E, padx=10, pady=5)
 
     def create_browse_xmr_button(self, window):
@@ -407,7 +353,7 @@ class MiningControlApp:
             self.tbminer_path_entry.delete(0, END)
             self.tbminer_path_entry.insert(0, file_path)
 
-    def browse_trm_path(self):
+    def browse_teamredminer_path(self):
         """Open a file dialog to browse for the TeamRedMiner executable."""
         file_path = filedialog.askopenfilename(title="Select TeamRedMiner Executable", filetypes=[("Executable Files", "*.exe")])
         if file_path:
@@ -423,75 +369,81 @@ class MiningControlApp:
 
     def save_settings(self, settings_window):
         """Save the settings from the input fields."""
-        global CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, POOL_HOSTNAME, POOL_PORT, POOL_WALLET, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH, GPU_TYPE
-
         # Update the config dictionary with the new settings
-        config["CPU_PRICE_THRESHOLD"] = float(self.cpu_price_threshold_entry.get())
-        config["GPU_PRICE_THRESHOLD"] = float(self.gpu_price_threshold_entry.get())
-        config["AMBER_API_SITE_ID"] = self.amber_site_id_entry.get()
-        config["AMBER_API_KEY"] = self.amber_api_key_entry.get()
-        config["WORKER_NAME"] = self.worker_name_entry.get()
-        config["ENABLE_IDLE_MINING"] = self.enable_idle_mining_var.get()
-        config["IDLE_TIME_THRESHOLD"] = int(self.idle_time_threshold_entry.get())
+        self.config["CPU_PRICE_THRESHOLD"] = float(self.cpu_price_threshold_entry.get())
+        self.config["GPU_PRICE_THRESHOLD"] = float(self.gpu_price_threshold_entry.get())
+        self.config["AMBER_API_SITE_ID"] = self.amber_site_id_entry.get()
+        self.config["AMBER_API_KEY"] = self.amber_api_key_entry.get()
+        self.config["WORKER_NAME"] = self.worker_name_entry.get()
+        self.config["ENABLE_IDLE_MINING"] = bool(self.enable_idle_mining_var.get())
+        self.config["IDLE_TIME_THRESHOLD"] = int(self.idle_time_threshold_entry.get())
 
         # CPU Mining settings
-        config["CPU_POOL_URL"] = self.cpu_pool_url_entry.get()
-        config["CPU_POOL_PORT"] = int(self.cpu_pool_port_entry.get())
-        config["CPU_WALLET"] = self.cpu_wallet_entry.get()
-        config["XMRIG_EXECUTABLE_PATH"] = self.xmrig_path_entry.get()
+        self.config["CPU_POOL_URL"] = self.cpu_pool_url_entry.get()
+        self.config["CPU_POOL_PORT"] = int(self.cpu_pool_port_entry.get())
+        self.config["CPU_WALLET"] = self.cpu_wallet_entry.get()
+        self.config["XMRIG_EXECUTABLE_PATH"] = self.xmrig_path_entry.get()
 
         # GPU Mining settings
-        config["GPU_POOL_URL"] = self.gpu_pool_url_entry.get()
-        config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
-        config["GPU_WALLET"] = self.gpu_wallet_entry.get()
-        config["GPU_TYPE"] = self.gpu_type_var.get()
-        config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
-        config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.get()
+        self.config["GPU_POOL_URL"] = self.gpu_pool_url_entry.get()
+        self.config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.get())
+        self.config["GPU_WALLET"] = self.gpu_wallet_entry.get()
+        self.config["GPU_TYPE"] = self.gpu_type_var.get()  # Save GPU Type
+        self.config["TBM_EXECUTABLE_PATH"] = self.tbminer_path_entry.get()
+        self.config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.get()
 
         # Save the updated configuration
-        save_config()
+        self.save_config()
 
         # Reload the configuration to apply changes immediately
         settings_window.destroy()
-        self.reload_config()  # Reload the config after the settings window is destroyed
+        self.validate_miner_executables()  # Validate miner executables after settings change
 
-    def reload_config(self):
-        """Reload configuration from the file and update global variables."""
-        global config, CPU_PRICE_THRESHOLD, GPU_PRICE_THRESHOLD, AMBER_API_SITE_ID, AMBER_API_KEY, WORKER_NAME, TBM_EXECUTABLE_PATH, TEAMREDMINER_EXECUTABLE_PATH, XMRIG_EXECUTABLE_PATH, GPU_TYPE
+    def get_api_url(self):
+        """Construct the Amber API URL based on the site ID and API key."""
+        site_id = self.config["AMBER_API_SITE_ID"]
+        api_key = self.config["AMBER_API_KEY"]
+        if site_id and api_key:
+            return f"https://api.amber.com.au/v1/sites/{site_id}/prices/current?next=0&previous=0"
+        return None
 
-        config = load_config()
+    def check_for_updates(self):
+        """Check if the current version is the latest release on GitHub."""
+        try:
+            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+            response.raise_for_status()
+            data = response.json()
+            latest_release = data["tag_name"]
+            asset = next(
+                asset for asset in data["assets"] if asset["name"] == EXECUTABLE_NAME
+            )
 
-        logging.info("Controller: Config reloading")
+            if latest_release > VERSION:
+                download_url = asset["browser_download_url"]
+                self.prompt_update(latest_release, download_url)
+            else:
+                logging.info("Controller: Application already at latest version")
 
-        # General settings
-        CPU_PRICE_THRESHOLD = float(config["CPU_PRICE_THRESHOLD"])
-        GPU_PRICE_THRESHOLD = float(config["GPU_PRICE_THRESHOLD"])
-        AMBER_API_SITE_ID = config["AMBER_API_SITE_ID"]
-        AMBER_API_KEY = config["AMBER_API_KEY"]
-        WORKER_NAME = config["WORKER_NAME"]
+        except Exception as e:
+            logging.error(f"Controller: Error checking for updates: {e}")
 
-        # CPU Mining settings
-        self.cpu_pool_url = config["CPU_POOL_URL"]
-        self.cpu_pool_port = int(config["CPU_POOL_PORT"])
-        self.cpu_wallet = config["CPU_WALLET"]
-        XMRIG_EXECUTABLE_PATH = config["XMRIG_EXECUTABLE_PATH"]
+    def prompt_update(self, latest_release, download_url):
+        """Prompt the user to update to the latest version and download the new executable."""
+        message = f"A new version ({latest_release}) is available. Would you like to download now?"
+        response = messagebox.askokcancel("Update Available", message)
 
-        # GPU Mining settings
-        self.gpu_pool_url = config["GPU_POOL_URL"]
-        self.gpu_pool_port = int(config["GPU_POOL_PORT"])
-        self.gpu_wallet = config["GPU_WALLET"]
-        GPU_TYPE = config.get("GPU_TYPE", "Nvidia+AMD")
-        TBM_EXECUTABLE_PATH = config["TBM_EXECUTABLE_PATH"]
-        TEAMREDMINER_EXECUTABLE_PATH = config["TEAMREDMINER_EXECUTABLE_PATH"]
+        if response:
+            webbrowser.open(download_url)
 
-        # Validate miner executables on startup
-        self.validate_miner_executables()
+    def get_idle_time(self):
+        """Get the system idle time in seconds."""
+        return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
 
     def monitor_conditions(self):
         """Monitor idle time and price conditions to control mining."""
-        if config.get("ENABLE_IDLE_MINING", False):
-            idle_time = get_idle_time()
-            idle_threshold = int(config["IDLE_TIME_THRESHOLD"])
+        if self.config.get("ENABLE_IDLE_MINING", False):
+            idle_time = self.get_idle_time()
+            idle_threshold = int(self.config["IDLE_TIME_THRESHOLD"])
 
             if idle_time >= idle_threshold:
                 self.control_mining_based_on_price()
@@ -504,19 +456,19 @@ class MiningControlApp:
 
     def fetch_electricity_price(self):
         """Fetch the current electricity price from the Amber API."""
-        global last_fetched_price
-        api_url = get_api_url()
+        api_url = self.get_api_url()
         if api_url:
             headers = {
-                'Authorization': f'Bearer {AMBER_API_KEY}',
+                'Authorization': f'Bearer {self.config["AMBER_API_KEY"]}',
             }
             try:
                 response = requests.get(api_url, headers=headers)
+                response.raise_for_status()
                 data = response.json()
                 for entry in data:
                     if entry['channelType'] == 'general':
-                        last_fetched_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
-                        return last_fetched_price
+                        self.last_fetched_price = entry['perKwh'] / 100  # Convert from c/kWh to $/kWh
+                        return self.last_fetched_price
             except Exception as e:
                 logging.error(f"Controller: Error accessing current price: {e}")
                 return None
@@ -527,28 +479,27 @@ class MiningControlApp:
 
     def control_mining_based_on_price(self):
         """Control mining based on the last fetched electricity price."""
-        global last_fetched_price
-        if last_fetched_price is not None:
-            self.price_label.config(text=f"General Usage: ${last_fetched_price:.2f}/kWh")
+        if self.last_fetched_price is not None:
+            self.price_label.config(text=f"General Usage: ${self.last_fetched_price:.2f}/kWh")
 
             if self.auto_control.get() == 1:
                 cpu_mining_active = "monero" in self.mining_processes
                 gpu_mining_active = "gpu_mining" in self.mining_processes
 
                 # Handle CPU mining based on price threshold
-                if last_fetched_price < CPU_PRICE_THRESHOLD and not cpu_mining_active:
-                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {CPU_PRICE_THRESHOLD})")
+                if self.last_fetched_price < self.config["CPU_PRICE_THRESHOLD"] and not cpu_mining_active:
+                    logging.info(f"Controller: Electricity cost below threshold ({self.last_fetched_price} < {self.config['CPU_PRICE_THRESHOLD']})")
                     self.start_cpu_mining()
-                elif last_fetched_price >= CPU_PRICE_THRESHOLD and cpu_mining_active:
-                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {CPU_PRICE_THRESHOLD})")
+                elif self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and cpu_mining_active:
+                    logging.info(f"Controller: Electricity cost above threshold ({self.last_fetched_price} > {self.config['CPU_PRICE_THRESHOLD']})")
                     self.stop_cpu_mining()
 
                 # Handle GPU mining based on price threshold
-                if last_fetched_price < GPU_PRICE_THRESHOLD and not gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost below threshold ({last_fetched_price} < {GPU_PRICE_THRESHOLD})")
+                if self.last_fetched_price < self.config["GPU_PRICE_THRESHOLD"] and not gpu_mining_active:
+                    logging.info(f"Controller: Electricity cost below threshold ({self.last_fetched_price} < {self.config['GPU_PRICE_THRESHOLD']})")
                     self.start_gpu_mining()
-                elif last_fetched_price >= GPU_PRICE_THRESHOLD and gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost above threshold ({last_fetched_price} > {GPU_PRICE_THRESHOLD})")
+                elif self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"] and gpu_mining_active:
+                    logging.info(f"Controller: Electricity cost above threshold ({self.last_fetched_price} > {self.config['GPU_PRICE_THRESHOLD']})")
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()  # Update button state after managing the mining processes
@@ -565,10 +516,11 @@ class MiningControlApp:
         """Validate the miner executables by checking their versions."""
         try:
             # Validate miners based on GPU_TYPE
-            if GPU_TYPE in ["Nvidia", "Nvidia+AMD"]:
+            gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
+            if gpu_type in ["Nvidia", "Nvidia+AMD"]:
                 # Validate TBMiner
                 result = subprocess.run(
-                    [TBM_EXECUTABLE_PATH, '--version'],
+                    [self.config["TBM_EXECUTABLE_PATH"], '--version'],
                     capture_output=True,
                     text=True,
                     check=True
@@ -578,10 +530,10 @@ class MiningControlApp:
                 else:
                     raise ValueError("Invalid TBMiner executable output.")
 
-            if GPU_TYPE in ["AMD", "Nvidia+AMD"]:
+            if gpu_type in ["AMD", "Nvidia+AMD"]:
                 # Validate TeamRedMiner
                 result = subprocess.run(
-                    [TEAMREDMINER_EXECUTABLE_PATH, '--version'],
+                    [self.config["TEAMREDMINER_EXECUTABLE_PATH"], '--version'],
                     capture_output=True,
                     text=True,
                     check=True
@@ -593,7 +545,7 @@ class MiningControlApp:
 
             # Validate XMRig
             result = subprocess.run(
-                [XMRIG_EXECUTABLE_PATH, '--version'],
+                [self.config["XMRIG_EXECUTABLE_PATH"], '--version'],
                 capture_output=True,
                 text=True,
                 check=True
@@ -602,9 +554,10 @@ class MiningControlApp:
                 logging.info("Controller: XMRig executable validated successfully.")
             else:
                 raise ValueError("Invalid XMRig executable output.")
-            
+
         except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
             messagebox.showerror("Validation Error", f"Failed to validate miner executables: {e}")
+            logging.error(f"Validation Error: {e}")
             return False
 
     def toggle_mining(self):
@@ -627,11 +580,16 @@ class MiningControlApp:
     def start_cpu_mining(self):
         """Start the CPU (Monero) mining process."""
         if "monero" not in self.mining_processes:
-            start_cmd = (
-                f"{XMRIG_EXECUTABLE_PATH} --url={self.cpu_pool_url}:{self.cpu_pool_port} --tls --user={self.cpu_wallet} "
-                f"--pass=x --coin=monero --print-time=2"
-            )
-            proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+            start_cmd = [
+                self.config["XMRIG_EXECUTABLE_PATH"],
+                f"--url={self.config['CPU_POOL_URL']}:{self.config['CPU_POOL_PORT']}",
+                "--tls",
+                f"--user={self.config['CPU_WALLET']}",
+                "--pass=x",
+                "--coin=monero",
+                "--print-time=2"
+            ]
+            proc = subprocess.Popen(start_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             self.mining_processes["monero"] = proc  # Only track this subprocess
             
             # Run the monitoring of the subprocess output in a separate thread
@@ -673,24 +631,34 @@ class MiningControlApp:
     def run_gpu_mining(self):
         """Run the GPU mining processes based on GPU_TYPE."""
         try:
-            if GPU_TYPE in ["Nvidia", "Nvidia+AMD"]:
+            gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
+            if gpu_type in ["Nvidia", "Nvidia+AMD"]:
                 # Start TBMiner
-                tbm_cmd = (
-                    f"{TBM_EXECUTABLE_PATH} --algo kawpow --hostname {self.gpu_pool_url} --port {self.gpu_pool_port} "
-                    f"--wallet {self.gpu_wallet} --worker-name {WORKER_NAME} --api"
-                )
-                tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+                tbm_cmd = [
+                    self.config["TBM_EXECUTABLE_PATH"],
+                    "--algo", "kawpow",
+                    "--hostname", self.config["GPU_POOL_URL"],
+                    "--port", str(self.config["GPU_POOL_PORT"]),
+                    "--wallet", self.config["GPU_WALLET"],
+                    "--worker-name", self.config["WORKER_NAME"],
+                    "--api"
+                ]
+                tbm_proc = subprocess.Popen(tbm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 self.mining_processes["tbminer"] = tbm_proc
 
                 threading.Thread(target=self.monitor_tbm_output, args=(tbm_proc,), daemon=True).start()
 
-            if GPU_TYPE in ["AMD", "Nvidia+AMD"]:
+            if gpu_type in ["AMD", "Nvidia+AMD"]:
                 # Start TeamRedMiner
-                trm_cmd = (
-                    f"{TEAMREDMINER_EXECUTABLE_PATH} -a kawpow -o stratum+tcp://{self.gpu_pool_url}:{self.gpu_pool_port} "
-                    f"-u {self.gpu_wallet}.{WORKER_NAME} -p x --api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
-                )
-                trm_proc = subprocess.Popen(trm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True, text=True)
+                trm_cmd = [
+                    self.config["TEAMREDMINER_EXECUTABLE_PATH"],
+                    "-a", "kawpow",
+                    "-o", f"stratum+tcp://{self.config['GPU_POOL_URL']}:{self.config['GPU_POOL_PORT']}",
+                    "-u", f"{self.config['GPU_WALLET']}.{self.config['WORKER_NAME']}",
+                    "-p", "x",
+                    f"--api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
+                ]
+                trm_proc = subprocess.Popen(trm_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 self.mining_processes["teamredminer"] = trm_proc
 
                 threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
@@ -743,6 +711,13 @@ class MiningControlApp:
             self.mining_processes.pop("teamredminer", None)
             self.update_miner_stats()
 
+    def jsonrpc(self, ip, port, command):
+        """JSON-RPC helper function for TeamRedMiner."""
+        with socket.create_connection((ip, port)) as s:
+            s.sendall(json.dumps(command).encode())
+            response = b"".join(iter(lambda: s.recv(4096), b""))
+        return json.loads(response.decode().replace('\x00', ''))
+
     def update_miner_stats(self):
         """Fetch and update miner statistics from both miners."""
         gpu_total_hashrate = 0.0
@@ -765,7 +740,7 @@ class MiningControlApp:
         if "teamredminer" in self.mining_processes:
             try:
                 command = {"command": "summary+devs"}
-                response = jsonrpc(TEAMREDMINER_API_HOST, TEAMREDMINER_API_PORT, command)
+                response = self.jsonrpc(TEAMREDMINER_API_HOST, TEAMREDMINER_API_PORT, command)
 
                 # Extract summary data
                 summary = response.get('summary', {}).get('SUMMARY', [{}])[0]
@@ -858,7 +833,7 @@ class MiningControlApp:
                 logging.info(f"Controller: {process_key.capitalize()} mining process forcefully terminated.")
             except Exception as e:
                 logging.error(f"Controller: Error forcefully terminating {process_key} process: {e}")
-        
+
         self.mining_processes.pop(process_key, None)
 
         # Reset the statistics for the stopped process
@@ -872,10 +847,9 @@ class MiningControlApp:
 
     def is_mining_active(self):
         """Check if any mining process is active."""
-        return (
-            ("monero" in self.mining_processes and self.mining_processes["monero"].poll() is None) or
-            "tbminer" in self.mining_processes or
-            "teamredminer" in self.mining_processes
+        return any(
+            proc_key in self.mining_processes and self.mining_processes[proc_key].poll() is None
+            for proc_key in ["monero", "tbminer", "teamredminer"]
         )
 
     def update_toggle_button_state(self):
@@ -884,11 +858,11 @@ class MiningControlApp:
             self.toggle_btn.config(text="Stop Mining", bootstyle="danger")
         else:
             if self.auto_control.get() == 1:
-                if last_fetched_price is not None and (
-                    last_fetched_price >= CPU_PRICE_THRESHOLD and last_fetched_price >= GPU_PRICE_THRESHOLD
+                if self.last_fetched_price is not None and (
+                    self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"]
                 ):
                     self.toggle_btn.config(text="Price too high", bootstyle="warning")
-                elif config.get("ENABLE_IDLE_MINING", False) and get_idle_time() < int(config["IDLE_TIME_THRESHOLD"]):
+                elif self.config.get("ENABLE_IDLE_MINING", False) and self.get_idle_time() < int(self.config["IDLE_TIME_THRESHOLD"]):
                     self.toggle_btn.config(text="Waiting on idle", bootstyle="warning")
             else:
                 self.toggle_btn.config(text="Manual Start", bootstyle="primary")
@@ -899,16 +873,6 @@ class MiningControlApp:
             self.stop_mining()
         finally:
             self.root.destroy()
-
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
-    return os.path.join(base_path, relative_path)
 
 def main():
     root = ttk.Window(themename="darkly")
