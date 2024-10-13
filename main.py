@@ -641,7 +641,10 @@ class MiningControlApp:
                     "--port", str(self.config["GPU_POOL_PORT"]),
                     "--user", self.config["GPU_WALLET"],
                     "--worker", self.config["WORKER_NAME"],
-                    "--api", "4068"
+                    "--api", "4068",
+                    "--nvml", "1", 
+                    "--cuda", "1", 
+                    "--opencl", "0"
                 ]
                 gminer_proc = subprocess.Popen(gminer_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 self.mining_processes["gminer"] = gminer_proc
