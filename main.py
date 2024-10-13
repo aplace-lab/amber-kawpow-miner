@@ -772,7 +772,6 @@ class MiningControlApp:
 
     def populate_gminer_stats(self, devices):
         """Populate the GPU statistics table with Gminer data."""
-        logging.error(devices)
         for gpu_stats in devices:
             gpu_name = gpu_stats.get("name", "Unknown")
             gpu_temp = gpu_stats.get("temperature", "N/A")
