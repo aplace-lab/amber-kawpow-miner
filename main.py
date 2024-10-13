@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
 }
 
 # Static variables
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 LOG_FILE = "amber-kawpow-miner.log"
 GMINER_MINING_API_URL = "http://127.0.0.1:4068/stat"
 TEAMREDMINER_API_HOST = '127.0.0.1'
@@ -525,7 +525,7 @@ class MiningControlApp:
                     text=True,
                     check=True
                 )
-                if "Miner version" in result.stdout:
+                if "GMiner" in result.stdout:
                     logging.info("Controller: Gminer executable validated successfully.")
                 else:
                     raise ValueError("Invalid Gminer executable output.")
@@ -772,7 +772,6 @@ class MiningControlApp:
 
     def populate_gminer_stats(self, devices):
         """Populate the GPU statistics table with Gminer data."""
-        logging.error(devices)
         for gpu_stats in devices:
             gpu_name = gpu_stats.get("name", "Unknown")
             gpu_temp = gpu_stats.get("temperature", "N/A")
