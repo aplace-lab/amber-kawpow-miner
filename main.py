@@ -9,8 +9,11 @@ import threading
 import logging
 import webbrowser
 import re
+import random
+import string
 from html import escape
 from logging.handlers import RotatingFileHandler
+from functools import wraps
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -21,6 +24,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot, QSize, QObject
 from PyQt6.QtGui import QIcon, QAction, QTextCursor, QPalette, QColor
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 # Configuration file
 CONFIG_FILE = "config.json"
@@ -46,7 +52,8 @@ DEFAULT_CONFIG = {
     "GPU_WALLET": "",
     "GPU_TYPE": "Nvidia+AMD",
     "GMINER_EXECUTABLE_PATH": r".\Gminer.exe",
-    "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe"
+    "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe",
+    "API_AUTH_TOKEN": ""
 }
 
 # Static variables
@@ -164,6 +171,11 @@ class MiningControlApp(QMainWindow):
     update_toggle_button_state_signal = pyqtSignal()
     update_cpu_hashrate_signal = pyqtSignal(str)
 
+    # Signals for thread-safe control
+    start_mining_signal = pyqtSignal()
+    stop_mining_signal = pyqtSignal()
+    enable_auto_control_signal = pyqtSignal(bool)
+
     def __init__(self):
         super().__init__()
         logging.info("Controller: Application starting")
@@ -199,17 +211,35 @@ class MiningControlApp(QMainWindow):
         self.clear_gpu_stats_signal.connect(self.clear_gpu_stats)
         self.update_toggle_button_state_signal.connect(self.update_toggle_button_state)
 
+        # Thread-safe control signals
+        self.start_mining_signal.connect(self.start_mining)
+        self.stop_mining_signal.connect(self.stop_mining)
+        self.enable_auto_control_signal.connect(self.set_auto_control)
+
+        # Initialize the Flask app
+        self.api_app = Flask(__name__)
+        CORS(self.api_app)
+        self.api_thread = threading.Thread(target=self.run_api_server)
+        self.api_thread.daemon = True
+        self.api_thread.start()
+
     def load_config(self):
         """Load configuration from the config file, merging with defaults."""
         config = DEFAULT_CONFIG.copy()
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, "r") as f:
-                user_config = json.load(f)
-                config.update(user_config)
+                try:
+                    user_config = json.load(f)
+                    config.update(user_config)
+                except json.JSONDecodeError:
+                    logging.error("Controller: Error decoding config.json, using default configuration.")
         else:
+            # Generate a new API authentication token
+            config["API_AUTH_TOKEN"] = self.generate_auth_token()
             # Save default config if config file doesn't exist
             with open(CONFIG_FILE, "w") as f:
                 json.dump(config, f, indent=4)
+        self.config = config
         return config
 
     def save_config(self):
@@ -217,6 +247,11 @@ class MiningControlApp(QMainWindow):
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=4)
         logging.info("Controller: Preferences saved")
+
+    def generate_auth_token(self):
+        """Generate a secure random authentication token."""
+        token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+        return token
 
     def initUI(self):
         """Initialize the user interface."""
@@ -331,7 +366,7 @@ class MiningControlApp(QMainWindow):
         control_layout.addWidget(self.toggle_btn, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.auto_control = QCheckBox("Auto Control Mining")
-        self.auto_control.stateChanged.connect(self.update_price)
+        self.auto_control.stateChanged.connect(self.update_auto_control)
         control_layout.addWidget(self.auto_control, alignment=Qt.AlignmentFlag.AlignLeft)
 
         layout.addWidget(control_group)
@@ -447,7 +482,7 @@ class MiningControlApp(QMainWindow):
         """Open the settings dialog."""
         settings_dialog = QDialog(self)
         settings_dialog.setWindowTitle("Settings")
-        settings_dialog.setGeometry(100, 100, 500, 300)
+        settings_dialog.setGeometry(100, 100, 500, 400)
 
         layout = QVBoxLayout()
         settings_dialog.setLayout(layout)
@@ -481,6 +516,10 @@ class MiningControlApp(QMainWindow):
         self.enable_idle_mining_var = QCheckBox("Enable Idle Mining")
         self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
         general_layout.addRow(self.enable_idle_mining_var)
+
+        # Display the API authentication token
+        self.api_auth_token_label = QLabel(self.config.get("API_AUTH_TOKEN", ""))
+        general_layout.addRow("API Auth Token:", self.api_auth_token_label)
 
         # CPU Tab
         cpu_tab = QWidget()
@@ -598,6 +637,17 @@ class MiningControlApp(QMainWindow):
         self.save_config()
         dialog.close()
         self.validate_miner_executables()
+
+    def update_auto_control(self):
+        """Update auto control based on checkbox state."""
+        is_checked = self.auto_control.isChecked()
+        self.enable_auto_control_signal.emit(is_checked)
+
+    @pyqtSlot(bool)
+    def set_auto_control(self, enable):
+        """Set auto control state."""
+        self.auto_control.setChecked(enable)
+        # Additional logic if needed
 
     def get_api_url(self):
         """Construct the Amber API URL."""
@@ -921,6 +971,7 @@ class MiningControlApp(QMainWindow):
     def update_miner_stats(self, gpu_total_hashrate, devices_stats):
         """Update the GUI with fetched miner statistics."""
         self.update_gpu_hashrate_signal.emit(f"{gpu_total_hashrate:.2f} MH/s")
+        self.device_stats = devices_stats
         self.stats_tree.clear()
 
         for device in devices_stats:
@@ -937,16 +988,19 @@ class MiningControlApp(QMainWindow):
     def update_cpu_hashrate(self, hashrate):
         """Update the CPU hashrate label."""
         self.cpu_hashrate_label.setText(f"CPU Hashrate: {hashrate}")
+        self.cpu_hashrate_value = hashrate
 
     @pyqtSlot(str)
     def update_gpu_hashrate(self, hashrate):
         """Update the GPU hashrate label."""
         self.gpu_hashrate_label.setText(f"GPU Hashrate: {hashrate}")
+        self.gpu_hashrate_value = hashrate
 
     @pyqtSlot()
     def clear_gpu_stats(self):
         """Clear the GPU statistics table."""
         self.stats_tree.clear()
+        self.device_stats = []
 
     @pyqtSlot()
     def update_toggle_button_state(self):
@@ -1031,10 +1085,73 @@ class MiningControlApp(QMainWindow):
         except ImportError:
             return 0  # On non-Windows systems, return 0
 
+    def run_api_server(self):
+        @self.api_app.route('/control', methods=['POST'])
+        def control_mining():
+            data = request.json
+            command = data.get('command')
+            auth = request.headers.get('Authorization')
+            if auth != f"Bearer {self.config.get('API_AUTH_TOKEN')}":
+                return jsonify({'error': 'Unauthorized'}), 401
+            if command == 'start':
+                self.start_mining_signal.emit()
+                return jsonify({'status': 'Mining started'}), 200
+            elif command == 'stop':
+                self.stop_mining_signal.emit()
+                return jsonify({'status': 'Mining stopped'}), 200
+            else:
+                return jsonify({'error': 'Invalid command'}), 400
+
+        @self.api_app.route('/auto_control', methods=['POST'])
+        def auto_control():
+            data = request.json
+            enable = data.get('enable')
+            auth = request.headers.get('Authorization')
+            if auth != f"Bearer {self.config.get('API_AUTH_TOKEN')}":
+                return jsonify({'error': 'Unauthorized'}), 401
+            if isinstance(enable, bool):
+                self.enable_auto_control_signal.emit(enable)
+                return jsonify({'status': f'Auto control {"enabled" if enable else "disabled"}'}), 200
+            else:
+                return jsonify({'error': 'Invalid value for enable'}), 400
+
+        @self.api_app.route('/stats', methods=['GET'])
+        def get_stats():
+            auth = request.headers.get('Authorization')
+            if auth != f"Bearer {self.config.get('API_AUTH_TOKEN')}":
+                return jsonify({'error': 'Unauthorized'}), 401
+            stats = {
+                'electricity_price': self.last_fetched_price,
+                'cpu_hashrate': self.cpu_hashrate_label.text(),
+                'gpu_hashrate': self.gpu_hashrate_label.text(),
+                'devices': self.get_device_stats()
+            }
+            return jsonify(stats), 200
+
+        self.api_app.run(host='0.0.0.0', port=5000)
+
+    def get_device_stats(self):
+        devices = []
+        for index in range(self.stats_tree.topLevelItemCount()):
+            item = self.stats_tree.topLevelItem(index)
+            device_info = {
+                'name': item.text(0),
+                'temperature': item.text(1),
+                'power_usage': item.text(2),
+                'fan_speed': item.text(3),
+                'hashrate': item.text(4)
+            }
+            devices.append(device_info)
+        return devices
+
     def closeEvent(self, event):
         """Handle the window close event."""
         self.stop_mining()
         self.stop_miner_stats_worker()
+        # Shutdown Flask server
+        func = request.environ.get('werkzeug.server.shutdown')
+        if func is not None:
+            func()
         event.accept()
 
 def main():
