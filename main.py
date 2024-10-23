@@ -518,8 +518,16 @@ class MiningControlApp(QMainWindow):
         general_layout.addRow(self.enable_idle_mining_var)
 
         # Display the API authentication token
+        api_token_layout = QHBoxLayout()
         self.api_auth_token_label = QLabel(self.config.get("API_AUTH_TOKEN", ""))
-        general_layout.addRow("API Auth Token:", self.api_auth_token_label)
+        regenerate_token_btn = QPushButton("Regenerate")
+        copy_token_btn = QPushButton("Copy")
+        regenerate_token_btn.clicked.connect(self.regenerate_api_token)
+        copy_token_btn.clicked.connect(self.copy_api_token)
+        api_token_layout.addWidget(self.api_auth_token_label)
+        api_token_layout.addWidget(regenerate_token_btn)
+        api_token_layout.addWidget(copy_token_btn)
+        general_layout.addRow("API Auth Token:", api_token_layout)
 
         # CPU Tab
         cpu_tab = QWidget()
@@ -589,6 +597,20 @@ class MiningControlApp(QMainWindow):
         layout.addLayout(button_layout)
 
         settings_dialog.exec()
+
+    def copy_api_token(self):
+        """Copy the API token to clipboard."""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.config["API_AUTH_TOKEN"])
+        self.status_bar.showMessage("API token copied to clipboard", 2000)
+        logging.info("Controller: API token copied to clipboard")
+
+    def regenerate_api_token(self):
+        """Regenerate the API authentication token."""
+        new_token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+        self.config["API_AUTH_TOKEN"] = new_token
+        self.api_auth_token_label.setText(new_token)
+        logging.info("Controller: API authentication token regenerated")
 
     def browse_xmrig_path(self):
         """Browse for XMRig executable."""
@@ -1127,6 +1149,14 @@ class MiningControlApp(QMainWindow):
                 'devices': self.get_device_stats()
             }
             return jsonify(stats), 200
+        
+        @self.api_app.route('/shutdown', methods=['POST'])
+        def shutdown():
+            func = request.environ.get('werkzeug.server.shutdown')
+            if func is None:
+                raise RuntimeError('Not running with the Werkzeug Server')
+            func()
+            return 'Server shutting down...'
 
         self.api_app.run(host='0.0.0.0', port=5000)
 
@@ -1148,10 +1178,10 @@ class MiningControlApp(QMainWindow):
         """Handle the window close event."""
         self.stop_mining()
         self.stop_miner_stats_worker()
-        # Shutdown Flask server
-        func = request.environ.get('werkzeug.server.shutdown')
-        if func is not None:
-            func()
+        try:
+            requests.post('http://localhost:5000/shutdown')
+        except:
+            pass
         event.accept()
 
 def main():
