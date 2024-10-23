@@ -1,6 +1,8 @@
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -26,13 +28,15 @@ jobs:
     - name: Build executable with PyInstaller
       run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico;." --icon="logo.ico" --uac-admin
 
-    - name: Upload artifact
+    - name: Upload artifact (Pull Request)
+      if: ${{ github.event_name == 'pull_request' }}
       uses: actions/upload-artifact@v4
       with:
-        name: amber-kawpow-miner
+        name: amber-kawpow-miner-test-build
         path: dist\amber-kawpow-miner.exe
 
     - name: Create GitHub Release
+      if: ${{ github.event_name == 'push' }}
       id: create_release
       uses: actions/create-release@v1
       env:
@@ -44,6 +48,7 @@ jobs:
         prerelease: false
 
     - name: Upload to Release
+      if: ${{ github.event_name == 'push' }}
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
