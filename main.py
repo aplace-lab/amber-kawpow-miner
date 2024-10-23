@@ -66,7 +66,7 @@ DEFAULT_CONFIG = {
 }
 
 # Static variables
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 LOG_FILE = "amber-kawpow-miner.log"
 GMINER_MINING_API_URL = "http://127.0.0.1:4068/stat"
 TEAMREDMINER_API_HOST = '127.0.0.1'
