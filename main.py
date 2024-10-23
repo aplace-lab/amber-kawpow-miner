@@ -11,6 +11,7 @@ import webbrowser
 import re
 import random
 import string
+import time
 from html import escape
 from logging.handlers import RotatingFileHandler
 from functools import wraps
@@ -1108,6 +1109,13 @@ class MiningControlApp(QMainWindow):
             return 0  # On non-Windows systems, return 0
 
     def run_api_server(self):
+        self._shutdown_event = threading.Event()
+        
+        @self.api_app.before_request
+        def check_shutdown():
+            if self._shutdown_event.is_set():
+                return 'Server shutting down...', 503
+            
         @self.api_app.route('/control', methods=['POST'])
         def control_mining():
             data = request.json
@@ -1178,10 +1186,14 @@ class MiningControlApp(QMainWindow):
         """Handle the window close event."""
         self.stop_mining()
         self.stop_miner_stats_worker()
-        try:
-            requests.post('http://localhost:5000/shutdown')
-        except:
-            pass
+        if hasattr(self, 'api_thread'):
+            def shutdown_flask():
+                try:
+                    requests.get('http://localhost:5000/shutdown')
+                except:
+                    pass
+            threading.Thread(target=shutdown_flask, daemon=True).start()
+            time.sleep(0.5)
         event.accept()
 
 def main():
