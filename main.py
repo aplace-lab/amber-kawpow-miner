@@ -132,9 +132,9 @@ class MinerStatsWorker(QObject):
                     devices_stats.extend([
                         {
                             'name': device.get("name", "Unknown"),
-                            'temperature': str(device.get("temperature", "N/A")),
-                            'power_usage': str(device.get("power_usage", "N/A")),
-                            'fan_speed': str(device.get("fan", "N/A")),
+                            'temperature': device.get("temperature", None),
+                            'power_usage': device.get("power_usage", None),
+                            'fan_speed': device.get("fan", None),
                             'hashrate': device.get("speed", 0) / 1e6  # Convert to MH/s
                         }
                         for device in devices
@@ -158,9 +158,9 @@ class MinerStatsWorker(QObject):
                     devices_stats.extend([
                         {
                             'name': dev.get('Name', f"GPU {dev.get('GPU')}"),
-                            'temperature': str(dev.get('Temperature', 'N/A')),
-                            'power_usage': str(dev.get('GPU Power', 'N/A')),
-                            'fan_speed': str(dev.get('Fan Speed', 'N/A')),
+                            'temperature': dev.get('Temperature', None),
+                            'power_usage': dev.get('GPU Power', None),
+                            'fan_speed': dev.get('Fan Speed', None),
                             'hashrate': dev.get('MHS av', 0)
                         }
                         for dev in devs
@@ -175,10 +175,10 @@ class MinerStatsWorker(QObject):
 
 class MiningControlApp(QMainWindow):
     # Define custom signals
-    update_gpu_hashrate_signal = pyqtSignal(str)
+    update_gpu_hashrate_signal = pyqtSignal(float)
     clear_gpu_stats_signal = pyqtSignal()
     update_toggle_button_state_signal = pyqtSignal()
-    update_cpu_hashrate_signal = pyqtSignal(str)
+    update_cpu_hashrate_signal = pyqtSignal(float)
 
     # Signals for thread-safe control
     start_mining_signal = pyqtSignal()
@@ -202,6 +202,11 @@ class MiningControlApp(QMainWindow):
         self.log_dialog = None
         self.log_timer = None
         self.log_text_edit = None
+
+        # Initialize hashrate values
+        self.cpu_hashrate_value = 0.0
+        self.gpu_hashrate_value = 0.0
+        self.device_stats = []
 
         self.initUI()
         self.check_for_updates()
@@ -900,15 +905,18 @@ class MiningControlApp(QMainWindow):
             if proc.poll() is None:
                 proc.wait()
             self.mining_processes.pop("monero", None)
-            self.update_cpu_hashrate_signal.emit("N/A")
+            self.update_cpu_hashrate_signal.emit(0.0)
             self.update_toggle_button_state_signal.emit()
 
     def update_monero_hashrate(self, output_line):
         """Update the Monero hashrate."""
         parts = output_line.split()
         if len(parts) >= 6:
-            hashrate = f"{parts[5]} H/s"
-            self.update_cpu_hashrate_signal.emit(hashrate)
+            try:
+                hashrate_value = float(parts[5])
+                self.update_cpu_hashrate_signal.emit(hashrate_value)
+            except ValueError:
+                pass
 
     def start_gpu_mining(self):
         """Start the GPU mining processes."""
@@ -969,7 +977,7 @@ class MiningControlApp(QMainWindow):
             self.mining_processes.pop("teamredminer", None)
             self.mining_processes.pop("gpu_mining", None)
             # Emit signals instead of calling methods directly
-            self.update_gpu_hashrate_signal.emit("N/A")
+            self.update_gpu_hashrate_signal.emit(0.0)
             self.clear_gpu_stats_signal.emit()
             self.update_toggle_button_state_signal.emit()
             # Stop the miner stats worker
@@ -1025,31 +1033,42 @@ class MiningControlApp(QMainWindow):
     @pyqtSlot(float, list)
     def update_miner_stats(self, gpu_total_hashrate, devices_stats):
         """Update the GUI with fetched miner statistics."""
-        self.update_gpu_hashrate_signal.emit(f"{gpu_total_hashrate:.2f} MH/s")
+        self.gpu_hashrate_value = gpu_total_hashrate * 1e6 # Convert to H/s
+        self.update_gpu_hashrate_signal.emit(self.gpu_hashrate_value)
         self.device_stats = devices_stats
         self.stats_tree.clear()
 
         for device in devices_stats:
+            hashrate_str = f"{device['hashrate']:.2f}"
             item = QTreeWidgetItem([
                 device['name'],
-                device['temperature'],
-                device['power_usage'],
-                device['fan_speed'],
-                f"{device['hashrate']:.2f}"
+                str(device['temperature']) if device['temperature'] is not None else 'N/A',
+                str(device['power_usage']) if device['power_usage'] is not None else 'N/A',
+                str(device['fan_speed']) if device['fan_speed'] is not None else 'N/A',
+                hashrate_str
             ])
             self.stats_tree.addTopLevelItem(item)
 
-    @pyqtSlot(str)
+    @pyqtSlot(float)
     def update_cpu_hashrate(self, hashrate):
         """Update the CPU hashrate label."""
-        self.cpu_hashrate_label.setText(f"CPU Hashrate: {hashrate}")
         self.cpu_hashrate_value = hashrate
+        # Now format the label
+        if hashrate > 0:
+            self.cpu_hashrate_label.setText(f"CPU Hashrate: {hashrate:.2f} H/s")
+        else:
+            self.cpu_hashrate_label.setText("CPU Hashrate: N/A")
 
-    @pyqtSlot(str)
+    @pyqtSlot(float)
     def update_gpu_hashrate(self, hashrate):
         """Update the GPU hashrate label."""
-        self.gpu_hashrate_label.setText(f"GPU Hashrate: {hashrate}")
         self.gpu_hashrate_value = hashrate
+        # Now format the label
+        if hashrate > 0:
+            hashrate_mhs = hashrate / 1e6  # Convert H/s to MH/s
+            self.gpu_hashrate_label.setText(f"GPU Hashrate: {hashrate_mhs:.2f} MH/s")
+        else:
+            self.gpu_hashrate_label.setText("GPU Hashrate: N/A")
 
     @pyqtSlot()
     def clear_gpu_stats(self):
@@ -1118,9 +1137,9 @@ class MiningControlApp(QMainWindow):
         self.mining_processes.pop(process_key, None)
 
         if process_key == "monero":
-            self.update_cpu_hashrate_signal.emit("N/A")
+            self.update_cpu_hashrate_signal.emit(0.0)
         elif process_key in ["gminer", "teamredminer"]:
-            self.update_gpu_hashrate_signal.emit("N/A")
+            self.update_gpu_hashrate_signal.emit(0.0)
             self.clear_gpu_stats_signal.emit()
 
         self.update_toggle_button_state_signal.emit()
@@ -1183,10 +1202,32 @@ class MiningControlApp(QMainWindow):
             if auth != f"Bearer {self.config.get('API_AUTH_TOKEN')}":
                 return jsonify({'error': 'Unauthorized'}), 401
             stats = {
-                'electricity_price': self.last_fetched_price,
-                'cpu_hashrate': self.cpu_hashrate_label.text(),
-                'gpu_hashrate': self.gpu_hashrate_label.text(),
-                'devices': self.get_device_stats()
+                'timestamp': datetime.datetime.now().isoformat(),
+                'worker': {
+                    'name': self.config['WORKER_NAME'],
+                    'version': VERSION,
+                    'auto_control': self.auto_control.isChecked()
+                },
+                'power': {
+                    'electricity_price': self.last_fetched_price,
+                    'price_thresholds': {
+                        'cpu': self.config['CPU_PRICE_THRESHOLD'],
+                        'gpu': self.config['GPU_PRICE_THRESHOLD']
+                    }
+                },
+                'mining': {
+                    'cpu': {
+                        'active': 'monero' in self.mining_processes,
+                        'hashrate': self.cpu_hashrate_value,  # Now a float in H/s
+                        'pool': f"{self.config['CPU_POOL_URL']}:{self.config['CPU_POOL_PORT']}"
+                    },
+                    'gpu': {
+                        'active': any(k in self.mining_processes for k in ['gminer', 'teamredminer']),
+                        'hashrate': self.gpu_hashrate_value,  # Now a float in H/s
+                        'pool': f"{self.config['GPU_POOL_URL']}:{self.config['GPU_POOL_PORT']}",
+                        'devices': self.get_device_stats()
+                    }
+                }
             }
             return jsonify(stats), 200
         
@@ -1206,25 +1247,21 @@ class MiningControlApp(QMainWindow):
         
         context = SSLContext(PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert_path, key_path)
-        
-        self.api_app.run(
-            host='0.0.0.0',
-            port=5000,
-            ssl_context=context
-        )
+
+        self.api_app.run(host='0.0.0.0', port=5000, ssl_context=context)
 
     def get_device_stats(self):
+        """Return device stats with numeric values."""
+        # Since self.device_stats already contains numeric values, we can return it directly
         devices = []
-        for index in range(self.stats_tree.topLevelItemCount()):
-            item = self.stats_tree.topLevelItem(index)
-            device_info = {
-                'name': item.text(0),
-                'temperature': item.text(1),
-                'power_usage': item.text(2),
-                'fan_speed': item.text(3),
-                'hashrate': item.text(4)
-            }
-            devices.append(device_info)
+        for device in self.device_stats:
+            devices.append({
+                'name': device['name'],
+                'temperature': device['temperature'],
+                'power_usage': device['power_usage'],
+                'fan_speed': device['fan_speed'],
+                'hashrate': device['hashrate'] * 1e6  # Convert MH/s to H/s
+            })
         return devices
 
     def closeEvent(self, event):
