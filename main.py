@@ -29,6 +29,14 @@ from PyQt6.QtGui import QIcon, QAction, QTextCursor, QPalette, QColor
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from ssl import SSLContext, PROTOCOL_TLS_SERVER
+import datetime
+
 # Configuration file
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
@@ -253,6 +261,30 @@ class MiningControlApp(QMainWindow):
         """Generate a secure random authentication token."""
         token = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
         return token
+    
+    def generate_self_signed_cert(self):
+        """Generate self-signed certificate for HTTPS."""
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, self.config['WORKER_NAME'])])
+        
+        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer)\
+            .public_key(key.public_key())\
+            .serial_number(x509.random_serial_number())\
+            .not_valid_before(datetime.datetime.now(datetime.timezone.utc))\
+            .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650))\
+            .sign(key, hashes.SHA256())
+
+        cert_path = os.path.join(os.path.dirname(__file__), "server.crt")
+        key_path = os.path.join(os.path.dirname(__file__), "server.key")
+        
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        with open(key_path, "wb") as f:
+            f.write(key.private_bytes(encoding=serialization.Encoding.PEM,
+                                    format=serialization.PrivateFormat.PKCS8,
+                                    encryption_algorithm=serialization.NoEncryption()))
+        
+        return cert_path, key_path
 
     def initUI(self):
         """Initialize the user interface."""
@@ -1166,7 +1198,20 @@ class MiningControlApp(QMainWindow):
             func()
             return 'Server shutting down...'
 
-        self.api_app.run(host='0.0.0.0', port=5000)
+        cert_path = os.path.join(os.path.dirname(__file__), "server.crt")
+        key_path = os.path.join(os.path.dirname(__file__), "server.key")
+        
+        if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+            cert_path, key_path = self.generate_self_signed_cert()
+        
+        context = SSLContext(PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert_path, key_path)
+        
+        self.api_app.run(
+            host='0.0.0.0',
+            port=5000,
+            ssl_context=context
+        )
 
     def get_device_stats(self):
         devices = []
