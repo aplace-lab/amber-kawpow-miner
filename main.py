@@ -777,7 +777,7 @@ class MiningControlApp(QMainWindow):
             return None
 
     def control_mining_based_on_price(self):
-        """Control mining based on the last fetched electricity price."""
+        """Control mining based on the last fetched electricity price and idle time."""
         if self.last_fetched_price is not None:
             self.price_label.setText(f"General Usage: ${self.last_fetched_price:.2f}/kWh")
 
@@ -785,26 +785,65 @@ class MiningControlApp(QMainWindow):
                 cpu_mining_active = "monero" in self.mining_processes
                 gpu_mining_active = "gpu_mining" in self.mining_processes
 
+                # Check idle time if ENABLE_IDLE_MINING is True
+                idle_mining_enabled = self.config.get("ENABLE_IDLE_MINING", False)
+                idle_time_threshold = int(self.config.get("IDLE_TIME_THRESHOLD", 300))
+                idle_time = self.get_idle_time()
+
+                # Determine if we should start mining based on price thresholds
+                price_condition_cpu = self.last_fetched_price < self.config["CPU_PRICE_THRESHOLD"]
+                price_condition_gpu = self.last_fetched_price < self.config["GPU_PRICE_THRESHOLD"]
+
+                # Determine if idle time condition is met
+                idle_condition_met = True  # Assume idle condition is met
+                if idle_mining_enabled:
+                    if idle_time < idle_time_threshold:
+                        idle_condition_met = False
+
+                # Decide whether to start or stop mining
+                should_start_cpu_mining = price_condition_cpu and idle_condition_met
+                should_start_gpu_mining = price_condition_gpu and idle_condition_met
+
                 # Handle CPU mining
-                if self.last_fetched_price < self.config["CPU_PRICE_THRESHOLD"] and not cpu_mining_active:
-                    logging.info(f"Controller: Electricity cost below threshold ({self.last_fetched_price} < {self.config['CPU_PRICE_THRESHOLD']})")
+                if should_start_cpu_mining and not cpu_mining_active:
+                    reasons = []
+                    if price_condition_cpu:
+                        reasons.append(f"Price condition met (${self.last_fetched_price:.2f}/kWh < ${self.config['CPU_PRICE_THRESHOLD']:.2f}/kWh)")
+                    if idle_mining_enabled and idle_condition_met:
+                        reasons.append(f"Idle time condition met ({idle_time:.2f}s >= {idle_time_threshold}s)")
+                    logging.info(f"Controller: Starting CPU mining - {' and '.join(reasons)}")
                     self.start_cpu_mining()
-                elif self.last_fetched_price >= self.config["CPU_PRICE_THRESHOLD"] and cpu_mining_active:
-                    logging.info(f"Controller: Electricity cost above threshold ({self.last_fetched_price} > {self.config['CPU_PRICE_THRESHOLD']})")
+                elif not should_start_cpu_mining and cpu_mining_active:
+                    reasons = []
+                    if not price_condition_cpu:
+                        reasons.append(f"Price condition not met (${self.last_fetched_price:.2f}/kWh >= ${self.config['CPU_PRICE_THRESHOLD']:.2f}/kWh)")
+                    if idle_mining_enabled and not idle_condition_met:
+                        reasons.append(f"Idle time condition not met ({idle_time:.2f}s < {idle_time_threshold}s)")
+                    logging.info(f"Controller: Stopping CPU mining - {' and '.join(reasons)}")
                     self.stop_cpu_mining()
 
                 # Handle GPU mining
-                if self.last_fetched_price < self.config["GPU_PRICE_THRESHOLD"] and not gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost below threshold ({self.last_fetched_price} < {self.config['GPU_PRICE_THRESHOLD']})")
+                if should_start_gpu_mining and not gpu_mining_active:
+                    reasons = []
+                    if price_condition_gpu:
+                        reasons.append(f"Price condition met (${self.last_fetched_price:.2f}/kWh < ${self.config['GPU_PRICE_THRESHOLD']:.2f}/kWh)")
+                    if idle_mining_enabled and idle_condition_met:
+                        reasons.append(f"Idle time condition met ({idle_time:.2f}s >= {idle_time_threshold}s)")
+                    logging.info(f"Controller: Starting GPU mining - {' and '.join(reasons)}")
                     self.start_gpu_mining()
-                elif self.last_fetched_price >= self.config["GPU_PRICE_THRESHOLD"] and gpu_mining_active:
-                    logging.info(f"Controller: Electricity cost above threshold ({self.last_fetched_price} > {self.config['GPU_PRICE_THRESHOLD']})")
+                elif not should_start_gpu_mining and gpu_mining_active:
+                    reasons = []
+                    if not price_condition_gpu:
+                        reasons.append(f"Price condition not met (${self.last_fetched_price:.2f}/kWh >= ${self.config['GPU_PRICE_THRESHOLD']:.2f}/kWh)")
+                    if idle_mining_enabled and not idle_condition_met:
+                        reasons.append(f"Idle time condition not met ({idle_time:.2f}s < {idle_time_threshold}s)")
+                    logging.info(f"Controller: Stopping GPU mining - {' and '.join(reasons)}")
                     self.stop_gpu_mining()
 
             self.update_toggle_button_state()
         else:
             self.price_label.setText("Error retrieving price")
-            logging.warning("Error retrieving price")
+            logging.warning("Controller: Error retrieving price")
 
     def update_price(self):
         """Update the price every 5 minutes."""
