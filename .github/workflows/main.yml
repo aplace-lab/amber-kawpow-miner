@@ -33,7 +33,6 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    needs: create-release
     steps:
       - uses: actions/checkout@v2
 
@@ -75,7 +74,6 @@ jobs:
 
   build-ubuntu:
     runs-on: ubuntu-20.04
-    needs: create-release
     steps:
       - uses: actions/checkout@v2
 
