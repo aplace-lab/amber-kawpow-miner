@@ -67,7 +67,7 @@ DEFAULT_CONFIG = {
 }
 
 # Static variables
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 LOG_FILE = "amber-kawpow-miner.log"
 GMINER_MINING_API_URL = "http://127.0.0.1:4068/stat"
 TEAMREDMINER_API_HOST = '127.0.0.1'
@@ -979,8 +979,7 @@ class MiningControlApp(QMainWindow):
                     "--algo", "kawpow",
                     "--server", self.config["GPU_POOL_URL"],
                     "--port", str(self.config["GPU_POOL_PORT"]),
-                    "--user", self.config["GPU_WALLET"],
-                    "--worker", self.config["WORKER_NAME"],
+                    "--user", f'{self.config["GPU_WALLET"]}.{self.config["WORKER_NAME"]}',
                     "--api", "4068",
                     "--nvml", "1",
                     "--cuda", "1",
