@@ -12,6 +12,7 @@ import re
 import random
 import string
 import time
+import platform
 from html import escape
 from logging.handlers import RotatingFileHandler
 from functools import wraps
@@ -551,9 +552,10 @@ class MiningControlApp(QMainWindow):
         self.idle_time_threshold_entry = QLineEdit(str(self.config["IDLE_TIME_THRESHOLD"]))
         general_layout.addRow("Idle Time Threshold (seconds):", self.idle_time_threshold_entry)
 
-        self.enable_idle_mining_var = QCheckBox("Enable Idle Mining")
-        self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
-        general_layout.addRow(self.enable_idle_mining_var)
+        if platform.system() == "Windows":
+            self.enable_idle_mining_var = QCheckBox("Enable Idle Mining")
+            self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
+            general_layout.addRow(self.enable_idle_mining_var)
 
         # Display the API authentication token
         api_token_layout = QHBoxLayout()
@@ -652,19 +654,19 @@ class MiningControlApp(QMainWindow):
 
     def browse_xmrig_path(self):
         """Browse for XMRig executable."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select XMRig Executable", "", "Executable Files (*.exe)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select XMRig Executable", "", "Executable Files (*)")
         if file_path:
             self.xmrig_path_entry.setText(file_path)
 
     def browse_gminer_path(self):
         """Browse for Gminer executable."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Gminer Executable", "", "Executable Files (*.exe)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Gminer Executable", "", "Executable Files (*)")
         if file_path:
             self.gminer_path_entry.setText(file_path)
 
     def browse_teamredminer_path(self):
         """Browse for TeamRedMiner executable."""
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select TeamRedMiner Executable", "", "Executable Files (*.exe)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select TeamRedMiner Executable", "", "Executable Files (*)")
         if file_path:
             self.teamredminer_path_entry.setText(file_path)
 
@@ -1196,7 +1198,7 @@ class MiningControlApp(QMainWindow):
             import win32api
             return (win32api.GetTickCount() - win32api.GetLastInputInfo()) / 1000
         except ImportError:
-            return 0  # On non-Windows systems, return 0
+            return None  # On non-Windows systems, return None
 
     def run_api_server(self):
         self._shutdown_event = threading.Event()
