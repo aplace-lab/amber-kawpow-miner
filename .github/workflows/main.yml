@@ -5,107 +5,109 @@ on:
     branches: [ main ]
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Extract VERSION from main.py
+        id: get_version
+        run: |
+          version=$(grep 'VERSION = ' main.py | sed -E 's/VERSION = "(.*)"/\1/')
+          echo "VERSION=$version" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.VERSION }}
+          release_name: "Release ${{ env.VERSION }}"
+          draft: false
+          prerelease: false
+
   build-windows:
     runs-on: windows-latest
+    needs: create-release
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.12
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.12
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-    - name: Extract VERSION from main.py
-      id: get_version
-      run: |
-        $version_line = Get-Content main.py | Select-String -Pattern 'VERSION = '
-        $version = $version_line -replace 'VERSION = "', '' -replace '"', ''
-        echo "VERSION=$version" >> $env:GITHUB_ENV
+      - name: Extract VERSION from main.py
+        id: get_version
+        run: |
+          $version_line = Get-Content main.py | Select-String -Pattern 'VERSION = '
+          $version = $version_line -replace 'VERSION = "', '' -replace '"', ''
+          echo "VERSION=$version" >> $env:GITHUB_ENV
 
-    - name: Build executable with PyInstaller
-      run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico;." --icon="logo.ico" --uac-admin
+      - name: Build executable with PyInstaller
+        run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico;." --icon="logo.ico" --uac-admin
 
-    - name: Upload artifact (Pull Request)
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: amber-kawpow-miner-test-build
-        path: dist\amber-kawpow-miner.exe
+      - name: Upload artifact (Pull Request)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: amber-kawpow-miner-test-build
+          path: dist\amber-kawpow-miner.exe
 
-    - name: Create GitHub Release
-      if: ${{ github.event_name == 'push' }}
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ env.VERSION }}
-        release_name: "Release ${{ env.VERSION }}"
-        draft: false
-        prerelease: false
-
-    - name: Upload to Release
-      if: ${{ github.event_name == 'push' }}
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist\amber-kawpow-miner.exe
-        asset_name: amber-kawpow-miner.exe
-        asset_content_type: application/octet-stream
+      - name: Upload to Release
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: dist\amber-kawpow-miner.exe
+          asset_name: amber-kawpow-miner.exe
+          asset_content_type: application/octet-stream
 
   build-ubuntu:
     runs-on: ubuntu-20.04
+    needs: create-release
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.12
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.12
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-    - name: Extract VERSION from main.py
-      id: get_version
-      run: |
-        version=$(grep 'VERSION = ' main.py | sed -E 's/VERSION = "(.*)"/\1/')
-        echo "VERSION=$version" >> $GITHUB_ENV
+      - name: Extract VERSION from main.py
+        id: get_version
+        run: |
+          version=$(grep 'VERSION = ' main.py | sed -E 's/VERSION = "(.*)"/\1/')
+          echo "VERSION=$version" >> $GITHUB_ENV
 
-    - name: Build executable with PyInstaller
-      run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico:." --icon="logo.ico"
+      - name: Build executable with PyInstaller
+        run: pyinstaller main.py --noconsole --onefile --name amber-kawpow-miner --add-data "logo.ico:." --icon="logo.ico"
 
-    - name: Upload artifact (Pull Request)
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: amber-kawpow-miner-test-build-linux
-        path: dist/amber-kawpow-miner
+      - name: Upload artifact (Pull Request)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: amber-kawpow-miner-test-build-linux
+          path: dist/amber-kawpow-miner
 
-    - name: Create GitHub Release
-      if: ${{ github.event_name == 'push' }}
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ env.VERSION }}
-        release_name: "Release ${{ env.VERSION }} - Linux"
-        draft: false
-        prerelease: false
-
-    - name: Upload to Release
-      if: ${{ github.event_name == 'push' }}
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist/amber-kawpow-miner
-        asset_name: amber-kawpow-miner-linux
-        asset_content_type: application/octet-stream
+      - name: Upload to Release
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: dist/amber-kawpow-miner
+          asset_name: amber-kawpow-miner-linux
+          asset_content_type: application/octet-stream
