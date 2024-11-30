@@ -552,9 +552,9 @@ class MiningControlApp(QMainWindow):
         self.idle_time_threshold_entry = QLineEdit(str(self.config["IDLE_TIME_THRESHOLD"]))
         general_layout.addRow("Idle Time Threshold (seconds):", self.idle_time_threshold_entry)
 
+        self.enable_idle_mining_var = QCheckBox("Enable Idle Mining")
+        self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
         if platform.system() == "Windows":
-            self.enable_idle_mining_var = QCheckBox("Enable Idle Mining")
-            self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
             general_layout.addRow(self.enable_idle_mining_var)
 
         # Display the API authentication token
