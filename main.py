@@ -790,10 +790,10 @@ class MiningControlApp(QMainWindow):
 
         # Add tabs
         tabs.addTab(general_tab, "General")
+        tabs.addTab(miners_tab, "Miners")
         tabs.addTab(cpu_tab, "CPU")
         tabs.addTab(nvidia_tab, "Nvidia")
         tabs.addTab(amd_tab, "AMD")
-        tabs.addTab(miners_tab, "Miners")
 
         # Save Button
         button_layout = QHBoxLayout()
