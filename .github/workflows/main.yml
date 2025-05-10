@@ -33,6 +33,8 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    needs: [create-release]
+    if: always()
     steps:
       - uses: actions/checkout@v2
 
@@ -62,7 +64,7 @@ jobs:
           path: dist\amber-kawpow-miner.exe
 
       - name: Upload to Release
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' && needs.create-release.result == 'success' }}
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,6 +76,8 @@ jobs:
 
   build-ubuntu:
     runs-on: ubuntu-latest
+    needs: [create-release]
+    if: always()
     steps:
       - uses: actions/checkout@v2
 
@@ -102,7 +106,7 @@ jobs:
           path: dist/amber-kawpow-miner
 
       - name: Upload to Release
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' && needs.create-release.result == 'success' }}
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
