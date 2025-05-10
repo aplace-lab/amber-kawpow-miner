@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QCheckBox, QTreeWidget, QTreeWidgetItem,
     QDialog, QLineEdit, QFileDialog, QMessageBox, QTabWidget,
     QFormLayout, QGroupBox, QTextEdit, QComboBox,
-    QStatusBar
+    QStatusBar, QInputDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot, QSize, QObject
 from PyQt6.QtGui import QIcon, QAction, QTextCursor, QPalette, QColor
@@ -49,6 +49,10 @@ DEFAULT_CONFIG = {
     "WORKER_NAME": socket.gethostname(),
     "ENABLE_IDLE_MINING": False,
     "IDLE_TIME_THRESHOLD": 300,  # Time in seconds (e.g., 5 minutes)
+    "ACTIVE_PROFILE": "Default",
+    "PROFILES": {
+        "Default": {}
+    },
 
     # CPU Mining settings
     "CPU_POOL_URL": "xmr-au1.nanopool.org",
@@ -56,13 +60,27 @@ DEFAULT_CONFIG = {
     "CPU_WALLET": "",
     "XMRIG_EXECUTABLE_PATH": r".\xmrig.exe",
 
-    # GPU Mining settings
+    # Nvidia Mining settings
+    "NVIDIA_ENABLED": True,
+    "NVIDIA_POOL_URL": "rvn.2miners.com",
+    "NVIDIA_POOL_PORT": 6060,
+    "NVIDIA_WALLET": "",
+    "NVIDIA_ALGORITHM": "kawpow",
+    "GMINER_EXECUTABLE_PATH": r".\Gminer.exe",
+    
+    # AMD Mining settings
+    "AMD_ENABLED": True,
+    "AMD_POOL_URL": "rvn.2miners.com", 
+    "AMD_POOL_PORT": 6060,
+    "AMD_WALLET": "",
+    "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe",
+    
+    # Legacy settings (for backwards compatibility)
     "GPU_POOL_URL": "rvn.2miners.com",
     "GPU_POOL_PORT": 6060,
     "GPU_WALLET": "",
-    "GPU_TYPE": "Nvidia+AMD",
-    "GMINER_EXECUTABLE_PATH": r".\Gminer.exe",
-    "TEAMREDMINER_EXECUTABLE_PATH": r".\teamredminer.exe",
+    "GPU_ALGORITHM": "kawpow",
+    
     "API_AUTH_TOKEN": ""
 }
 
@@ -259,6 +277,32 @@ class MiningControlApp(QMainWindow):
 
     def save_config(self):
         """Save the current configuration to a file."""
+        # Make sure profiles dictionary exists
+        self.config.setdefault("PROFILES", {"Default": {}})
+        
+        # Save current configuration to the active profile
+        active_profile = self.config.get("ACTIVE_PROFILE", "Default")
+        
+        # Only save to profile if it's not being called during profile loading
+        if hasattr(self, '_skip_profile_save') and self._skip_profile_save:
+            pass
+        else:
+            # Core profile fields to save
+            profile_fields = [
+                "CPU_PRICE_THRESHOLD", "GPU_PRICE_THRESHOLD", "WORKER_NAME", 
+                "ENABLE_IDLE_MINING", "IDLE_TIME_THRESHOLD",
+                "CPU_POOL_URL", "CPU_POOL_PORT", "CPU_WALLET", "XMRIG_EXECUTABLE_PATH",
+                "NVIDIA_ENABLED", "NVIDIA_POOL_URL", "NVIDIA_POOL_PORT", "NVIDIA_WALLET", 
+                "NVIDIA_ALGORITHM", "GMINER_EXECUTABLE_PATH",
+                "AMD_ENABLED", "AMD_POOL_URL", "AMD_POOL_PORT", "AMD_WALLET", 
+                "TEAMREDMINER_EXECUTABLE_PATH"
+            ]
+            
+            # Update profile data with current settings
+            for field in profile_fields:
+                if field in self.config:
+                    self.config["PROFILES"][active_profile][field] = self.config[field]
+        
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=4)
         logging.info("Controller: Preferences saved")
@@ -376,9 +420,14 @@ class MiningControlApp(QMainWindow):
         summary_layout = QVBoxLayout()
         summary_group.setLayout(summary_layout)
 
+        # Price and active profile info
+        price_profile_layout = QHBoxLayout()
+        
         self.price_label = QLabel("General Usage: $0.00/kWh")
         self.price_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        summary_layout.addWidget(self.price_label)
+        price_profile_layout.addWidget(self.price_label)
+        
+        summary_layout.addLayout(price_profile_layout)
 
         hash_rates_layout = QHBoxLayout()
 
@@ -391,22 +440,47 @@ class MiningControlApp(QMainWindow):
         hash_rates_layout.addWidget(self.gpu_hashrate_label)
 
         summary_layout.addLayout(hash_rates_layout)
+        
+        # Add algorithm and GPU type information
+        info_layout = QHBoxLayout()       
+        summary_layout.addLayout(info_layout)
+        
         layout.addWidget(summary_group)
 
     def create_control_section(self, layout):
         """Create the control section."""
         control_group = QGroupBox("Mining Control")
-        control_layout = QHBoxLayout()
+        control_layout = QVBoxLayout()
         control_group.setLayout(control_layout)
 
+        # Button and auto control row
+        button_row = QHBoxLayout()
+        
         self.toggle_btn = QPushButton("Manual Start")
         self.toggle_btn.setFixedWidth(150)
         self.toggle_btn.clicked.connect(self.toggle_mining)
-        control_layout.addWidget(self.toggle_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        button_row.addWidget(self.toggle_btn, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.auto_control = QCheckBox("Auto Control Mining")
         self.auto_control.stateChanged.connect(self.update_auto_control)
-        control_layout.addWidget(self.auto_control, alignment=Qt.AlignmentFlag.AlignLeft)
+        button_row.addWidget(self.auto_control, alignment=Qt.AlignmentFlag.AlignLeft)
+        
+        control_layout.addLayout(button_row)
+        
+        # Profile selector row
+        profile_row = QHBoxLayout()
+        
+        profile_label = QLabel("Active Profile:")
+        profile_row.addWidget(profile_label)
+        
+        self.main_profile_combo = QComboBox()
+        self.main_profile_combo.addItems(self.config.get("PROFILES", {}).keys())
+        current_profile = self.config.get("ACTIVE_PROFILE", "Default")
+        self.main_profile_combo.setCurrentText(current_profile)
+        self.main_profile_combo.currentTextChanged.connect(self.main_load_profile)
+        profile_row.addWidget(self.main_profile_combo)
+        
+        control_layout.addLayout(profile_row)
 
         layout.addWidget(control_group)
 
@@ -521,10 +595,35 @@ class MiningControlApp(QMainWindow):
         """Open the settings dialog."""
         settings_dialog = QDialog(self)
         settings_dialog.setWindowTitle("Settings")
-        settings_dialog.setGeometry(100, 100, 500, 400)
+        settings_dialog.setGeometry(100, 100, 550, 400)
 
         layout = QVBoxLayout()
         settings_dialog.setLayout(layout)
+        
+        # Profile management section
+        profile_group = QGroupBox("Profile Management")
+        profile_layout = QHBoxLayout()
+        profile_group.setLayout(profile_layout)
+        
+        profile_label = QLabel("Active Profile:")
+        profile_layout.addWidget(profile_label)
+        
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItems(self.config.get("PROFILES", {}).keys())
+        current_profile = self.config.get("ACTIVE_PROFILE", "Default")
+        self.profile_combo.setCurrentText(current_profile)
+        self.profile_combo.currentTextChanged.connect(self.load_profile)
+        profile_layout.addWidget(self.profile_combo)
+        
+        new_profile_btn = QPushButton("New")
+        new_profile_btn.clicked.connect(self.create_new_profile)
+        profile_layout.addWidget(new_profile_btn)
+        
+        delete_profile_btn = QPushButton("Delete")
+        delete_profile_btn.clicked.connect(self.delete_profile)
+        profile_layout.addWidget(delete_profile_btn)
+        
+        layout.addWidget(profile_group)
 
         tabs = QTabWidget()
         layout.addWidget(tabs)
@@ -590,43 +689,66 @@ class MiningControlApp(QMainWindow):
         xmrig_browse_btn.clicked.connect(self.browse_xmrig_path)
         cpu_layout.addRow(xmrig_browse_btn)
 
-        # GPU Tab
-        gpu_tab = QWidget()
-        gpu_layout = QFormLayout()
-        gpu_tab.setLayout(gpu_layout)
+        # Nvidia Tab
+        nvidia_tab = QWidget()
+        nvidia_layout = QFormLayout()
+        nvidia_tab.setLayout(nvidia_layout)
+        
+        self.nvidia_enabled_var = QCheckBox("Enable")
+        self.nvidia_enabled_var.setChecked(self.config.get("NVIDIA_ENABLED", True))
+        nvidia_layout.addRow(self.nvidia_enabled_var)
+        
+        self.nvidia_pool_url_entry = QLineEdit(self.config.get("NVIDIA_POOL_URL", ""))
+        nvidia_layout.addRow("Pool URL:", self.nvidia_pool_url_entry)
 
-        self.gpu_pool_url_entry = QLineEdit(self.config.get("GPU_POOL_URL", ""))
-        gpu_layout.addRow("Pool URL:", self.gpu_pool_url_entry)
+        self.nvidia_pool_port_entry = QLineEdit(str(self.config.get("NVIDIA_POOL_PORT", "")))
+        nvidia_layout.addRow("Pool Port:", self.nvidia_pool_port_entry)
 
-        self.gpu_pool_port_entry = QLineEdit(str(self.config.get("GPU_POOL_PORT", "")))
-        gpu_layout.addRow("Pool Port:", self.gpu_pool_port_entry)
+        self.nvidia_wallet_entry = QLineEdit(self.config.get("NVIDIA_WALLET", ""))
+        nvidia_layout.addRow("Wallet:", self.nvidia_wallet_entry)
 
-        self.gpu_wallet_entry = QLineEdit(self.config.get("GPU_WALLET", ""))
-        gpu_layout.addRow("Wallet:", self.gpu_wallet_entry)
-
-        self.gpu_type_var = QComboBox()
-        self.gpu_type_var.addItems(["Nvidia", "Nvidia+AMD", "AMD"])
-        self.gpu_type_var.setCurrentText(self.config.get("GPU_TYPE", "Nvidia+AMD"))
-        gpu_layout.addRow("GPU Type:", self.gpu_type_var)
+        self.nvidia_algorithm_var = QComboBox()
+        self.nvidia_algorithm_var.addItems(["kawpow", "equihash125_4"])
+        self.nvidia_algorithm_var.setCurrentText(self.config.get("NVIDIA_ALGORITHM", "kawpow"))
+        nvidia_layout.addRow("Mining Algorithm:", self.nvidia_algorithm_var)
 
         self.gminer_path_entry = QLineEdit(self.config["GMINER_EXECUTABLE_PATH"])
-        gpu_layout.addRow("Gminer Executable Path:", self.gminer_path_entry)
+        nvidia_layout.addRow("Gminer Executable Path:", self.gminer_path_entry)
 
         gminer_browse_btn = QPushButton("Browse...")
         gminer_browse_btn.clicked.connect(self.browse_gminer_path)
-        gpu_layout.addRow(gminer_browse_btn)
+        nvidia_layout.addRow(gminer_browse_btn)
+
+        # AMD Tab
+        amd_tab = QWidget()
+        amd_layout = QFormLayout()
+        amd_tab.setLayout(amd_layout)
+        
+        self.amd_enabled_var = QCheckBox("Enable")
+        self.amd_enabled_var.setChecked(self.config.get("AMD_ENABLED", True))
+        amd_layout.addRow(self.amd_enabled_var)
+        
+        self.amd_pool_url_entry = QLineEdit(self.config.get("AMD_POOL_URL", ""))
+        amd_layout.addRow("Pool URL:", self.amd_pool_url_entry)
+
+        self.amd_pool_port_entry = QLineEdit(str(self.config.get("AMD_POOL_PORT", "")))
+        amd_layout.addRow("Pool Port:", self.amd_pool_port_entry)
+
+        self.amd_wallet_entry = QLineEdit(self.config.get("AMD_WALLET", ""))
+        amd_layout.addRow("Wallet:", self.amd_wallet_entry)
 
         self.teamredminer_path_entry = QLineEdit(self.config["TEAMREDMINER_EXECUTABLE_PATH"])
-        gpu_layout.addRow("TeamRedMiner Executable Path:", self.teamredminer_path_entry)
+        amd_layout.addRow("TeamRedMiner Executable Path:", self.teamredminer_path_entry)
 
         teamredminer_browse_btn = QPushButton("Browse...")
         teamredminer_browse_btn.clicked.connect(self.browse_teamredminer_path)
-        gpu_layout.addRow(teamredminer_browse_btn)
+        amd_layout.addRow(teamredminer_browse_btn)
 
         # Add tabs
         tabs.addTab(general_tab, "General")
         tabs.addTab(cpu_tab, "CPU")
-        tabs.addTab(gpu_tab, "GPU")
+        tabs.addTab(nvidia_tab, "Nvidia")
+        tabs.addTab(amd_tab, "AMD")
 
         # Save Button
         button_layout = QHBoxLayout()
@@ -687,13 +809,45 @@ class MiningControlApp(QMainWindow):
         self.config["CPU_WALLET"] = self.cpu_wallet_entry.text()
         self.config["XMRIG_EXECUTABLE_PATH"] = self.xmrig_path_entry.text()
 
-        # GPU Mining settings
-        self.config["GPU_POOL_URL"] = self.gpu_pool_url_entry.text()
-        self.config["GPU_POOL_PORT"] = int(self.gpu_pool_port_entry.text())
-        self.config["GPU_WALLET"] = self.gpu_wallet_entry.text()
-        self.config["GPU_TYPE"] = self.gpu_type_var.currentText()
+        # Nvidia Mining settings
+        self.config["NVIDIA_ENABLED"] = self.nvidia_enabled_var.isChecked()
+        self.config["NVIDIA_POOL_URL"] = self.nvidia_pool_url_entry.text()
+        self.config["NVIDIA_POOL_PORT"] = int(self.nvidia_pool_port_entry.text())
+        self.config["NVIDIA_WALLET"] = self.nvidia_wallet_entry.text()
+        self.config["NVIDIA_ALGORITHM"] = self.nvidia_algorithm_var.currentText()
         self.config["GMINER_EXECUTABLE_PATH"] = self.gminer_path_entry.text()
+        
+        # AMD Mining settings
+        self.config["AMD_ENABLED"] = self.amd_enabled_var.isChecked()
+        self.config["AMD_POOL_URL"] = self.amd_pool_url_entry.text()
+        self.config["AMD_POOL_PORT"] = int(self.amd_pool_port_entry.text())
+        self.config["AMD_WALLET"] = self.amd_wallet_entry.text()
         self.config["TEAMREDMINER_EXECUTABLE_PATH"] = self.teamredminer_path_entry.text()
+        
+        # Legacy settings (for backward compatibility)
+        self.config["GPU_POOL_URL"] = self.nvidia_pool_url_entry.text()
+        self.config["GPU_POOL_PORT"] = int(self.nvidia_pool_port_entry.text())
+        self.config["GPU_WALLET"] = self.nvidia_wallet_entry.text()
+        self.config["GPU_ALGORITHM"] = self.nvidia_algorithm_var.currentText()
+
+        # Save current settings to the active profile
+        active_profile = self.config.get("ACTIVE_PROFILE", "Default")
+        self.config.setdefault("PROFILES", {})
+        self.config["PROFILES"].setdefault(active_profile, {})
+        
+        # Update profile data with current settings
+        profile_fields = [
+            "CPU_PRICE_THRESHOLD", "GPU_PRICE_THRESHOLD", "WORKER_NAME", 
+            "ENABLE_IDLE_MINING", "IDLE_TIME_THRESHOLD",
+            "CPU_POOL_URL", "CPU_POOL_PORT", "CPU_WALLET", "XMRIG_EXECUTABLE_PATH",
+            "NVIDIA_ENABLED", "NVIDIA_POOL_URL", "NVIDIA_POOL_PORT", "NVIDIA_WALLET", 
+            "NVIDIA_ALGORITHM", "GMINER_EXECUTABLE_PATH",
+            "AMD_ENABLED", "AMD_POOL_URL", "AMD_POOL_PORT", "AMD_WALLET", 
+            "TEAMREDMINER_EXECUTABLE_PATH"
+        ]
+        
+        for field in profile_fields:
+            self.config["PROFILES"][active_profile][field] = self.config.get(field)
 
         # Save the updated configuration
         self.save_config()
@@ -855,9 +1009,8 @@ class MiningControlApp(QMainWindow):
     def validate_miner_executables(self):
         """Validate miner executables."""
         try:
-            # Validate miners based on GPU_TYPE
-            gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
-            if gpu_type in ["Nvidia", "Nvidia+AMD"]:
+            # Validate miners based on enabled settings
+            if self.config.get("NVIDIA_ENABLED", True):
                 # Validate Gminer
                 result = subprocess.run(
                     [self.config["GMINER_EXECUTABLE_PATH"], '--version'],
@@ -870,7 +1023,7 @@ class MiningControlApp(QMainWindow):
                 else:
                     raise ValueError("Invalid Gminer executable output.")
 
-            if gpu_type in ["AMD", "Nvidia+AMD"]:
+            if self.config.get("AMD_ENABLED", True):
                 # Validate TeamRedMiner
                 result = subprocess.run(
                     [self.config["TEAMREDMINER_EXECUTABLE_PATH"], '--help'],
@@ -971,15 +1124,15 @@ class MiningControlApp(QMainWindow):
     def run_gpu_mining(self):
         """Run the GPU mining processes."""
         try:
-            gpu_type = self.config.get("GPU_TYPE", "Nvidia+AMD")
-            if gpu_type in ["Nvidia", "Nvidia+AMD"]:
+            # Check for Nvidia mining
+            if self.config.get("NVIDIA_ENABLED", True):
                 # Start Gminer
                 gminer_cmd = [
                     self.config["GMINER_EXECUTABLE_PATH"],
-                    "--algo", "kawpow",
-                    "--server", self.config["GPU_POOL_URL"],
-                    "--port", str(self.config["GPU_POOL_PORT"]),
-                    "--user", f'{self.config["GPU_WALLET"]}.{self.config["WORKER_NAME"]}',
+                    "--algo", self.config.get("NVIDIA_ALGORITHM", "kawpow"),
+                    "--server", self.config["NVIDIA_POOL_URL"],
+                    "--port", str(self.config["NVIDIA_POOL_PORT"]),
+                    "--user", f'{self.config["NVIDIA_WALLET"]}.{self.config["WORKER_NAME"]}',
                     "--api", "4068",
                     "--nvml", "1",
                     "--cuda", "1",
@@ -989,14 +1142,16 @@ class MiningControlApp(QMainWindow):
                 self.mining_processes["gminer"] = gminer_proc
 
                 threading.Thread(target=self.monitor_gminer_output, args=(gminer_proc,), daemon=True).start()
+                logging.info("Controller: Nvidia mining started")
 
-            if gpu_type in ["AMD", "Nvidia+AMD"]:
+            # Check for AMD mining
+            if self.config.get("AMD_ENABLED", True):
                 # Start TeamRedMiner
                 trm_cmd = [
                     self.config["TEAMREDMINER_EXECUTABLE_PATH"],
                     "-a", "kawpow",
-                    "-o", f"stratum+tcp://{self.config['GPU_POOL_URL']}:{self.config['GPU_POOL_PORT']}",
-                    "-u", f"{self.config['GPU_WALLET']}.{self.config['WORKER_NAME']}",
+                    "-o", f"stratum+tcp://{self.config['AMD_POOL_URL']}:{self.config['AMD_POOL_PORT']}",
+                    "-u", f"{self.config['AMD_WALLET']}.{self.config['WORKER_NAME']}",
                     "-p", "x",
                     f"--api_listen={TEAMREDMINER_API_HOST}:{TEAMREDMINER_API_PORT}"
                 ]
@@ -1004,6 +1159,7 @@ class MiningControlApp(QMainWindow):
                 self.mining_processes["teamredminer"] = trm_proc
 
                 threading.Thread(target=self.monitor_trm_output, args=(trm_proc,), daemon=True).start()
+                logging.info("Controller: AMD mining started")
 
             if "gminer" in self.mining_processes:
                 self.mining_processes["gminer"].wait()
@@ -1246,7 +1402,8 @@ class MiningControlApp(QMainWindow):
                 'worker': {
                     'name': self.config['WORKER_NAME'],
                     'version': VERSION,
-                    'auto_control': self.auto_control.isChecked()
+                    'auto_control': self.auto_control.isChecked(),
+                    'active_profile': self.config.get('ACTIVE_PROFILE', 'Default')
                 },
                 'power': {
                     'electricity_price': self.last_fetched_price,
@@ -1258,16 +1415,27 @@ class MiningControlApp(QMainWindow):
                 'mining': {
                     'cpu': {
                         'active': 'monero' in self.mining_processes,
-                        'hashrate': self.cpu_hashrate_value,  # Now a float in H/s
+                        'hashrate': self.cpu_hashrate_value,
                         'pool': f"{self.config['CPU_POOL_URL']}:{self.config['CPU_POOL_PORT']}"
                     },
                     'gpu': {
                         'active': any(k in self.mining_processes for k in ['gminer', 'teamredminer']),
-                        'hashrate': self.gpu_hashrate_value,  # Now a float in H/s
-                        'pool': f"{self.config['GPU_POOL_URL']}:{self.config['GPU_POOL_PORT']}",
+                        'hashrate': self.gpu_hashrate_value,
+                        'nvidia': {
+                            'enabled': self.config.get('NVIDIA_ENABLED', True),
+                            'active': 'gminer' in self.mining_processes,
+                            'algorithm': self.config.get('NVIDIA_ALGORITHM', 'kawpow'),
+                            'pool': f"{self.config['NVIDIA_POOL_URL']}:{self.config['NVIDIA_POOL_PORT']}"
+                        },
+                        'amd': {
+                            'enabled': self.config.get('AMD_ENABLED', True),
+                            'active': 'teamredminer' in self.mining_processes,
+                            'pool': f"{self.config['AMD_POOL_URL']}:{self.config['AMD_POOL_PORT']}"
+                        },
                         'devices': self.get_device_stats()
                     }
-                }
+                },
+                'profiles': list(self.config.get('PROFILES', {}).keys())
             }
             return jsonify(stats), 200
         
@@ -1317,6 +1485,151 @@ class MiningControlApp(QMainWindow):
             threading.Thread(target=shutdown_flask, daemon=True).start()
             time.sleep(0.5)
         event.accept()
+
+    def create_new_profile(self):
+        """Create a new mining profile."""
+        profile_name, ok = QInputDialog.getText(self, "New Profile", "Enter profile name:")
+        
+        if ok and profile_name:
+            # Check if profile already exists
+            if profile_name in self.config.get("PROFILES", {}):
+                QMessageBox.warning(self, "Profile Exists", f"Profile '{profile_name}' already exists.")
+                return
+                
+            # Create new profile with current settings
+            self.config.setdefault("PROFILES", {})
+            self.config["PROFILES"][profile_name] = {}
+            
+            # Add the new profile to the dropdowns and select it
+            self.profile_combo.addItem(profile_name)
+            self.profile_combo.setCurrentText(profile_name)
+            self.main_profile_combo.addItem(profile_name)
+            self.main_profile_combo.setCurrentText(profile_name)
+            self.config["ACTIVE_PROFILE"] = profile_name
+            
+            logging.info(f"Controller: Created new profile '{profile_name}'")
+            self.status_bar.showMessage(f"Created new profile: {profile_name}", 3000)
+    
+    def delete_profile(self):
+        """Delete the current profile."""
+        current_profile = self.profile_combo.currentText()
+        
+        # Don't allow deleting the Default profile
+        if current_profile == "Default":
+            QMessageBox.warning(self, "Cannot Delete Default", "The Default profile cannot be deleted.")
+            return
+            
+        # Confirm deletion
+        reply = QMessageBox.question(self, "Confirm Delete", 
+                                    f"Are you sure you want to delete the profile '{current_profile}'?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Remove from config and dropdowns
+            self.config["PROFILES"].pop(current_profile, None)
+            
+            # Get the index of the profile to remove
+            index = self.profile_combo.currentIndex()
+            main_index = self.main_profile_combo.findText(current_profile)
+            
+            # Switch to Default profile in both dropdowns
+            self.profile_combo.removeItem(index)
+            self.profile_combo.setCurrentText("Default")
+            if main_index >= 0:
+                self.main_profile_combo.removeItem(main_index)
+                self.main_profile_combo.setCurrentText("Default")
+            
+            self.config["ACTIVE_PROFILE"] = "Default"
+            
+            logging.info(f"Controller: Deleted profile '{current_profile}'")
+            self.status_bar.showMessage(f"Deleted profile: {current_profile}", 3000)
+    
+    def load_profile(self, profile_name):
+        """Load settings from the selected profile in settings dialog."""
+        if not profile_name or profile_name not in self.config.get("PROFILES", {}):
+            return
+            
+        profile_data = self.config["PROFILES"].get(profile_name, {})
+        self.config["ACTIVE_PROFILE"] = profile_name
+        
+        # Update main profile dropdown to match
+        self.main_profile_combo.setCurrentText(profile_name)
+        
+        # Only update fields that exist in the profile
+        # This allows partial profiles that only change some settings
+        if profile_data:
+            for key, value in profile_data.items():
+                self.config[key] = value
+                
+            # Update UI fields to reflect profile settings
+            self.update_settings_ui()
+                       
+            logging.info(f"Controller: Loaded profile '{profile_name}'")
+            self.status_bar.showMessage(f"Loaded profile: {profile_name}", 3000)
+    
+    def update_settings_ui(self):
+        """Update settings UI from current config."""
+        # This method is called when loading a profile to update all UI fields
+        # Note: This is only for the settings dialog, not the main UI
+        if not hasattr(self, 'nvidia_pool_url_entry'):
+            # Settings dialog not currently open
+            return
+            
+        # Update General tab
+        self.amber_site_id_entry.setText(self.config.get("AMBER_API_SITE_ID", ""))
+        self.amber_api_key_entry.setText(self.config.get("AMBER_API_KEY", ""))
+        self.worker_name_entry.setText(self.config.get("WORKER_NAME", ""))
+        self.cpu_price_threshold_entry.setText(str(self.config.get("CPU_PRICE_THRESHOLD", 0.4)))
+        self.gpu_price_threshold_entry.setText(str(self.config.get("GPU_PRICE_THRESHOLD", 0.1)))
+        self.idle_time_threshold_entry.setText(str(self.config.get("IDLE_TIME_THRESHOLD", 300)))
+        self.enable_idle_mining_var.setChecked(self.config.get("ENABLE_IDLE_MINING", False))
+        
+        # Update CPU tab
+        self.cpu_pool_url_entry.setText(self.config.get("CPU_POOL_URL", ""))
+        self.cpu_pool_port_entry.setText(str(self.config.get("CPU_POOL_PORT", "")))
+        self.cpu_wallet_entry.setText(self.config.get("CPU_WALLET", ""))
+        self.xmrig_path_entry.setText(self.config.get("XMRIG_EXECUTABLE_PATH", ""))
+        
+        # Update Nvidia tab
+        self.nvidia_enabled_var.setChecked(self.config.get("NVIDIA_ENABLED", True))
+        self.nvidia_pool_url_entry.setText(self.config.get("NVIDIA_POOL_URL", ""))
+        self.nvidia_pool_port_entry.setText(str(self.config.get("NVIDIA_POOL_PORT", "")))
+        self.nvidia_wallet_entry.setText(self.config.get("NVIDIA_WALLET", ""))
+        self.nvidia_algorithm_var.setCurrentText(self.config.get("NVIDIA_ALGORITHM", "kawpow"))
+        self.gminer_path_entry.setText(self.config.get("GMINER_EXECUTABLE_PATH", ""))
+        
+        # Update AMD tab
+        self.amd_enabled_var.setChecked(self.config.get("AMD_ENABLED", True))
+        self.amd_pool_url_entry.setText(self.config.get("AMD_POOL_URL", ""))
+        self.amd_pool_port_entry.setText(str(self.config.get("AMD_POOL_PORT", "")))
+        self.amd_wallet_entry.setText(self.config.get("AMD_WALLET", ""))
+        self.teamredminer_path_entry.setText(self.config.get("TEAMREDMINER_EXECUTABLE_PATH", ""))
+    
+    def main_load_profile(self, profile_name):
+        """Load a profile from the main UI selector."""
+        if not profile_name or profile_name not in self.config.get("PROFILES", {}):
+            return
+            
+        # Set flag to avoid overwriting the profile we're loading
+        self._skip_profile_save = True
+        
+        try:
+            profile_data = self.config["PROFILES"].get(profile_name, {})
+            self.config["ACTIVE_PROFILE"] = profile_name
+            
+            # Only update fields that exist in the profile
+            if profile_data:
+                for key, value in profile_data.items():
+                    self.config[key] = value
+                
+                # Save the configuration
+                self.save_config()
+                
+                logging.info(f"Controller: Loaded profile '{profile_name}' from main UI")
+                self.status_bar.showMessage(f"Loaded profile: {profile_name}", 3000)
+        finally:
+            # Remove the flag
+            self._skip_profile_save = False
 
 def main():
     app = QApplication(sys.argv)
